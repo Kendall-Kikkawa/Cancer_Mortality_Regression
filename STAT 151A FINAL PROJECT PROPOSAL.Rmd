@@ -22,8 +22,9 @@ Cancer has a large impact on society, affecting people from all different walks 
 
 In order to get a better grasp of the data, it would be helpful to first create a histogram of our dependent variable to look at the distribution of our data. If it’s not normally distributed, a box-cox transformation may need to be applied to our data. We can also see if our data has any clear outliers through this histogram. Some of our columns may need to be split into multiple columns. For example, the binned income column gives a lower and upper bound. This column should probably be split into two separate columns with one indicating a lower bound and the other an upper bound.
 
-After looking at the data, there are a few columns with a large amount of null values where extrapolation to fill in these null values wouldn’t make sense. As a result, we will drop these columns from our dataset. These columns are _PctHS18_24_, _PctEmployed16_Over_, and _PctPrivateCoverageAlone_. A few columns also have some strange values. For example, counties in the states of Minnesota, Kansas, and Nevada all contain the same average annual count as well as incident rate and neither of these values appear to be any sort of a national mean or median. It’s not clear where this value comes from and it’s possible that this data could be the result of encoding errors. We may want to compare a model including these rows and model without these rows and see how they perform. If necessary, we may also look into the possibility of appending new data from other datasets to the original dataset. Because we have location data in our dataset, we can also map our data on a map and view trends by state and region. If there’s a clear relationship between our features and regions of the map, we might want to add additional regionality features.
-```{r}
+After looking at the data, there are a few columns with a large amount of null values where extrapolation to fill in these null values wouldn’t make sense. As a result, we will drop these columns from our dataset. These columns are _PctSomeCol18_24_, _PctEmployed16_Over_, and _PctPrivateCoverageAlone_. A few columns also have some strange values. For example, counties in the states of Minnesota, Kansas, and Nevada all contain the same average annual count as well as incident rate and neither of these values appear to be any sort of a national mean or median. It’s not clear where this value comes from and it’s possible that this data could be the result of encoding errors. We may want to compare a model including these rows and model without these rows and see how they perform. If necessary, we may also look into the possibility of appending new data from other datasets to the original dataset. Because we have location data in our dataset, we can also map our data on a map and view trends by state and region. If there’s a clear relationship between our features and regions of the map, we might want to add additional regionality features. Below is an example of a regional plot that we may create:
+
+```{r, warning=FALSE}
 #Example plot 
 usmap::plot_usmap("counties", fill = "yellow", alpha = 0.25,
                   # 06065 = Riverside County, CA
@@ -36,7 +37,7 @@ We could then create a pairs plot to look at relationships between our variables
 
 ## Model Selection
 
-Given our data, our goal is to find the best model that gives the best prediction for cancer death rate in a county given their socioeconomic indicators. We’ve proposed a workflow in order to search for this particular model.  Initially, we will perform an 80:20 split of our data into a training set and the testing set. Next, we perform Best Subset Regression on our training data to examine all possible models from our features, and we will track the top 5 models for each number of features (p = [1, 30]). In parallel, we will apply Lasso regression to see which of these explanatory variables get assigned non-zero coefficients to have a sense of feature importance. Afterwards, we’ll assess the fit of the model using Mallow’s Cp , AIC, and BIC to select a model from other contenders of differing variable sizes. 
+Given our data, our goal is to find the best model that gives the best prediction for cancer death rate in a county given their socioeconomic indicators. We’ve proposed a workflow in order to search for this particular model.  Initially, we will perform an 80:20 split of our data into a training set and the testing set. Next, we perform Best Subset Regression on our training data to examine all possible models from our features, and we will track the top 5 models for each number of features (p = [1, 31]). In parallel, we will apply Lasso regression to see which of these explanatory variables get assigned non-zero coefficients to have a sense of feature importance. Afterwards, we’ll assess the fit of the model using Mallow’s Cp , AIC, and BIC to select a model from other contenders of differing variable sizes. 
 
 Now that we have a few different models of the same variable length, we’ll use Stepwise selection to find a “Final model” based on ANOVA.  If there are a few different models that converge to a single “Final model”, we’d find a suitable local optimum (or possibly global optimum) and select those coefficients, but if there is no convergence during the stepwise selection process, then we may possibly try out an ensembling method or forwards/backwards selection to find a best performing model. At the end, we’ll compare this best performing model with the lasso regression model.  
 	
@@ -51,9 +52,15 @@ The last diagnostic we will use is to compute the test RMSE. After our top model
 # Loaded Dataset Evidence
 
 ```{r}
-cancer <- read.csv("cancer_reg.csv")
-names(cancer)
-dim(cancer)
+cancer <- read.csv("cancer_reg.csv") # load data
+# remove columns with null values
+cancer_cleaned <- subset(cancer, select=-c(PctSomeCol18_24, PctEmployed16_Over, 
+                                   PctPrivateCoverageAlone)) 
+# PctSomeCol18_24 had 2285 missing values
+# PctEmployed16_Over had 152 missing values
+# PctPrivateCoverageAlone had 609 missing values
+names(cancer_cleaned) # Feature names
+dim(cancer_cleaned) # Matrix dimensions
 ```
 
 # Sources 
