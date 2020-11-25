@@ -19,9 +19,9 @@ library(tidyr)
 
 ```{r}
 # Load All data
-cancer <- read.csv("cancer_reg.csv")
-fips_codes <- read.csv("FIPS_codes.csv")
-state_abbr <- read.csv("State_Abbreviation_Mapping.csv") 
+cancer <- read.csv("Data/cancer_reg.csv")
+fips_codes <- read.csv("Data/FIPS_codes.csv")
+state_abbr <- read.csv("Data/State_Abbreviation_Mapping.csv") 
 
 # remove columns with null values
 cancer_cleaned <- subset(cancer, select=-c(PctSomeCol18_24, PctEmployed16_Over, 
@@ -98,19 +98,14 @@ plot_usmap(data = state_grouped, values = "TARGET_deathRate") +
 ```
 
 
-```{r}
-
-
-plot_usmap(data = mydata, values = "TARGET_deathRate") + 
-  scale_fill_continuous(low = "white", high = "red",
-                name = "Death Rate", label = scales::comma) + 
-  theme(legend.position = "right")
-```
-
-
 # Appendix
 
-## Dataset Description
+## Data Description
+
+### Main Dataset:
+
+- `cancer_reg.csv`: Found at https://data.world/nrippner/ols-regression-challenge
+- Metadata:
 
 | Column | Description |
 |:---:|:------:|
@@ -146,9 +141,12 @@ plot_usmap(data = mydata, values = "TARGET_deathRate") +
 | BirthRate | |
 | TARGET_deathRate | Cancer Rate (per 100,000) that we are trying to predict |
 
-## Added Data
-
-FIPS Codes found at: https://www.nrcs.usda.gov/wps/portal/nrcs/detail/national/home/?cid=nrcs143_013697
+### Added Data
+- `FIPS_codes.csv`:
+  - Found at https://www.nrcs.usda.gov/wps/portal/nrcs/detail/national/home/?cid=nrcs143_013697
+  - Corresponding FIPs codes for each County, had to perform manual cleaning to change county formatting for proper join
+- `State_Abbreviation_Mapping.csv`:
+  - Found online, maps state abbreviations to State
 
 
 
