@@ -1,0 +1,156 @@
+---
+title: "STAT 151A FINAL REPORT"
+author: "Kendall Kikkawa"
+date: "11/25/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(usmap)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+```
+
+# Data Description
+
+### See Appendix for Column Descriptions
+
+```{r}
+# Load All data
+cancer <- read.csv("cancer_reg.csv")
+fips_codes <- read.csv("FIPS_codes.csv")
+state_abbr <- read.csv("State_Abbreviation_Mapping.csv") 
+
+# remove columns with null values
+cancer_cleaned <- subset(cancer, select=-c(PctSomeCol18_24, PctEmployed16_Over, 
+                                   PctPrivateCoverageAlone)) 
+# PctSomeCol18_24 had 2285 missing values
+# PctEmployed16_Over had 152 missing values
+# PctPrivateCoverageAlone had 609 missing values
+
+names(cancer_cleaned) # Feature names
+dim(cancer_cleaned) # Matrix dimensions
+head(cancer_cleaned)
+```
+
+```{r}
+# Map Geopgrahy to County Name and State Columns, fix formatting for future join
+County <- sub(",.*$", "", cancer_cleaned$Geography)
+State <- sub("^.*,\\s*", "", cancer_cleaned$Geography)
+
+# Clean County for join with FIPS
+empty_subs = c(" County", " Parish", " City and Borough", 
+               " Municipality", " Borough", " Census Area")
+for (sub_string in empty_subs) {
+  County <- sub(sub_string, "", County) 
+}
+County <- sub("city", "City", County) 
+County <- sub("St ", "St. ", County) 
+
+# Create New columns
+cancer_cleaned$County<- County
+cancer_cleaned$State <- State
+cancer_cleaned <- subset(cancer_cleaned, select = -c(Geography)) # Redundant
+
+# Map State Abbreviation to Full Name
+fips_codes$County <- sub("St ", "St. ", fips_codes$County) 
+fips <- merge(fips_codes, state_abbr[, c('State', 'Postal.Abbreviation')], 
+      by.x='State', by.y='Postal.Abbreviation', all.x=TRUE)
+fips <- fips %>% 
+  rename(
+    State.Abbreviation = State,
+    State = State.y
+    )
+```
+
+
+```{r}
+# Join FIPS Info
+mydata <- left_join(cancer_cleaned, fips, by=c('County', 'State'))
+mydata <- mydata %>% 
+  rename(
+    fips = FIPS,
+    state = State
+    )
+head(mydata)
+```
+
+```{r}
+# Plot Target Rate by County
+plot_usmap(data = mydata, values = "TARGET_deathRate") + 
+  scale_fill_continuous(low = "white", high = "red",
+                name = "Death Rate", label = scales::comma) + 
+  theme(legend.position = "right")
+```
+
+```{r}
+# Plot Target Rate by State
+state_grouped <- mydata %>%
+	group_by(state) %>%
+	summarise(TARGET_deathRate = mean(TARGET_deathRate))
+
+plot_usmap(data = state_grouped, values = "TARGET_deathRate") + 
+  scale_fill_continuous(low = "white", high = "red",
+                name = "Death Rate", label = scales::comma) + 
+  theme(legend.position = "right")
+```
+
+
+```{r}
+
+
+plot_usmap(data = mydata, values = "TARGET_deathRate") + 
+  scale_fill_continuous(low = "white", high = "red",
+                name = "Death Rate", label = scales::comma) + 
+  theme(legend.position = "right")
+```
+
+
+# Appendix
+
+## Dataset Description
+
+| Column | Description |
+|:---:|:------:|
+| avgAnnCount | |
+| avgDeathsPerYear | |
+| incidenceRate | |
+| medIncome | |
+| popEst2015 | |
+| povertyPercent | |
+| studyPerCap | |
+| binnedInc | |
+| MedianAge | |
+| MedianAgeMale | |
+| MedianAgeFemale | |
+| Geography | |
+| AvgHouseholdSize | |
+| PercentMarried | |
+| PctNoHS18_24 | |
+| PctHS18_24 | |
+| PctBachDeg18_24 | |
+| PctHS25_Over | |
+| PctBachDeg25_Over | |
+| PctUnemployed16_Over | |
+| PctPrivateCoverage | |
+| PctEmpPrivCoverage | |
+| PctPublicCoverage | | 
+| PctPublicCoverageAlone | |
+| PctWhite | |
+| PctBlack | |
+| PctAsian | |
+| PctOtherRacePct | |
+| MarriedHouseholds | |
+| BirthRate | |
+| TARGET_deathRate | Cancer Rate (per 100,000) that we are trying to predict |
+
+## Added Data
+
+FIPS Codes found at: https://www.nrcs.usda.gov/wps/portal/nrcs/detail/national/home/?cid=nrcs143_013697
+
+
+
+
+
