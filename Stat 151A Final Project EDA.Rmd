@@ -19,7 +19,9 @@ library(car) #VIF
 
 ```
 
+DataSet
 
+https://data.world/nrippner/cancer-linear-regression-model-tutorial
 
 ```{r}
 cancer <- read.csv("Data/cancer_reg.csv")
@@ -169,6 +171,8 @@ corrplot(cor(df), type = "upper", order = "hclust", tl.pos = "td", tl.cex = 0.5,
 ```
 We note at the top right side of the correlation plot there is multicollinearity between the variables.
 
+- Add Final table for all removed or cleaned variables
+
 http://www.sthda.com/english/articles/39-regression-model-diagnostics/160-multicollinearity-essentials-and-vif-in-r/
 
 ```{r}
@@ -180,13 +184,17 @@ vif
 ```
 There's no specific cutoff, but based on https://stats.stackexchange.com/questions/342161/how-do-i-know-what-my-vif-limits-should-be-for-collinearity-should-be-when-doing/342181, a cut-off value of 10 seems plausible? 
 
+- Fox Chapter 13: 341, 358
+
 ```{r}
 remove_features <- vif[vif > 10]
 remove_features
 ```
+
 ```{r}
 names(vif[-remove_features])
 ```
+
 ```{r}
 df2 <- df[,names(vif[-remove_features])]
 df2
@@ -198,3 +206,12 @@ for (i in ncol(df)){
         gghist(df[i])
 }
 
+# Interaction of Terms with State
+
+- Group features by "category": Education, Racial Demographics, Medical, Income/Houshold
+- Identify "highest likelihood" of being correlated:
+  - Income/Houshold: Median Income
+  - and others
+  
+- If weak signal for interaction between them, then discontinue interaction search in that category
+- Else, inspect for interactions between state and all other features in that category
