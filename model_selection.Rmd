@@ -7,12 +7,15 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(leaps)
+library(glmnet)
+library(DAAG)
 ```
 
 # Setup
 ```{r}
 # Read dataframe
-df <- read.csv('Data/temp.csv')
+df <- read.csv('Data/temp3.csv')
 
 # Drop any row with null values
 df <-na.omit(df)
@@ -62,8 +65,7 @@ best.lasso.coefs
 ```
 ```{r}
 # Model selected by LASSO
-lasso_model <- lm(lm(TARGET_deathRate ~ .- medIncome - studyPerCap - MedianAge - MedianAgeFemale
-                     - PctPublicCoverage - PctWhite, data=train))
+lasso_model <- lm(lm(TARGET_deathRate ~ ., data=train))
 summary(lasso_model)
 ```
 The LASSO model performs marginally better than the full model if we lookat Adjusted R-squared as a metric.
@@ -82,20 +84,15 @@ data.frame(
 ```
 ```{r}
 # Adjusted R^2
-satreg.summary$which[22,]
-adjusted_r2_model <- lm(TARGET_deathRate ~ . - medIncome - studyPerCap - MedianAge - MedianAgeFemale
-                        - PctPublicCoverage - PctWhite - PctAsian, data=train)
+satreg.summary$which[23,]
+adjusted_r2_model <- lm(TARGET_deathRate ~ ., data=train)
 
 # Mallow's Cp
-satreg.summary$which[19,]
-cp_model <- lm(TARGET_deathRate ~ . - medIncome - studyPerCap - MedianAge - MedianAgeFemale - AvgHouseholdSize
-               - PctNoHS18_24 - PctBachDeg18_24 - PctPublicCoverage - PctWhite - PctAsian, data=train)
+satreg.summary$which[23,]
+cp_model <- lm(TARGET_deathRate ~ ., data=train)
 # BIC
-satreg.summary$which[14,]
-bic_model <- lm(TARGET_deathRate ~ avgAnnCount + avgDeathsPerYear + incidenceRate + povertyPercent + 
-                  MedianAgeMale + PercentMarried + PctHS18_24 + PctHS25_Over + PctBachDeg25_Over + 
-                  PctUnemployed16_Over + PctPublicCoverageAlone + PctOtherRace + PctMarriedHouseholds + 
-                  BirthRate, data=train)
+satreg.summary$which[22,]
+bic_model <- lm(TARGET_deathRate ~ . - BirthRate, data=train)
 ```
 # Cross Validation between models
 ```{r, fig.show='hide', results=FALSE}
@@ -131,11 +128,11 @@ cp.mse
 # MSE of model chosen by BIC
 bic.mse
 ```
-It appears that Mallow's Cp has chosen the best model
+It appears that BIC has chosen the best model
 
 # Model Diagnostics
 ```{r}
-summary(cp_model)
+summary(bic_model)
 ```
 
 ```{r}
@@ -189,3 +186,6 @@ mean((test$TARGET_deathRate - predict(lasso_model, test))^2)
 ```
 
 The LASSO model also looks good in terms of diagnostic plots and performs the same as the full model in terms of MSE. If we look at adjusted R^2 values for these 3 models, it goes lasso_model > cp_model > full_model.
+
+
+
