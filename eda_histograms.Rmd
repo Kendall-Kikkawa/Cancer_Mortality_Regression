@@ -1,0 +1,266 @@
+---
+title: "Stat 151A Final Project EDA"
+author: "Andre Sha"
+date: "12/9/2020"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(usmap)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(reshape2)
+library(corrplot)
+library(car) #VIF
+library(gridExtra)
+library(cowplot)
+library(forecast)
+```
+
+DataSet
+
+https://data.world/nrippner/cancer-linear-regression-model-tutorial
+
+```{r}
+cancer <- read.csv("Data/cancer_reg.csv")
+fips_codes <- read.csv("Data/FIPS_codes.csv")
+state_abbr <- read.csv("Data/State_Abbreviation_Mapping.csv") 
+```
+
+```{r}
+# remove columns with null values
+cancer_cleaned <- subset(cancer, select=-c(PctSomeCol18_24, PctEmployed16_Over, 
+                                   PctPrivateCoverageAlone)) 
+# PctSomeCol18_24 had 2285 missing values
+# PctEmployed16_Over had 152 missing values
+# PctPrivateCoverageAlone had 609 missing values
+
+names(cancer_cleaned) # Feature names
+dim(cancer_cleaned) # Matrix dimensions
+head(cancer_cleaned)
+```
+
+```{r}
+# Map Geopgrahy to County Name and State Columns, fix formatting for future join
+County <- sub(",.*$", "", cancer_cleaned$Geography)
+State <- sub("^.*,\\s*", "", cancer_cleaned$Geography)
+
+# Clean County for join with FIPS
+empty_subs = c(" County", " Parish", " City and Borough", 
+               " Municipality", " Borough", " Census Area")
+for (sub_string in empty_subs) {
+  County <- sub(sub_string, "", County) 
+}
+County <- sub("city", "City", County) 
+County <- sub("St ", "St. ", County) 
+
+# Create New columns
+cancer_cleaned$County<- County
+cancer_cleaned$State <- State
+cancer_cleaned <- subset(cancer_cleaned, select = -c(Geography)) # Redundant
+
+# Map State Abbreviation to Full Name
+fips_codes$County <- sub("St ", "St. ", fips_codes$County) 
+fips <- merge(fips_codes, state_abbr[, c('State', 'Postal.Abbreviation')], 
+      by.x='State', by.y='Postal.Abbreviation', all.x=TRUE)
+fips <- fips %>% 
+  rename(
+    State.Abbreviation = State,
+    State = State.y
+    )
+```
+
+
+```{r}
+# Join FIPS Info
+mydata <- left_join(cancer_cleaned, fips, by=c('County', 'State'))
+mydata <- mydata %>% 
+  rename(
+    fips = FIPS,
+    state = State
+    )
+head(mydata)
+```
+
+```{r}
+# Plot Target Rate by County
+plot_usmap(data = mydata, values = "TARGET_deathRate") + 
+  scale_fill_continuous(low = "white", high = "red",
+                name = "Death Rate", label = scales::comma) + 
+  theme(legend.position = "right")
+```
+
+```{r}
+# Plot Target Rate by State
+state_grouped <- mydata %>%
+	group_by(state) %>%
+	summarise(TARGET_deathRate = mean(TARGET_deathRate))
+
+plot_usmap(data = state_grouped, values = "TARGET_deathRate") + 
+  scale_fill_continuous(low = "white", high = "red",
+                name = "Death Rate", label = scales::comma) + 
+  theme(legend.position = "right")
+```
+
+# EDA
+
+Things to do: 
+
+Since we have multiple variables for regression, we'd want to detect multicollinearity within our regressors. 
+https://online.stat.psu.edu/stat462/node/180/
+
+```{r}
+head(mydata)
+```
+```{r}
+geography = subset(mydata, select = c("County","state", "State.Abbreviation","fips"))
+
+df <- mydata[,c(1:30)]
+str(df)
+
+#Goal: take each row of binned income, and find mean between its lower and upper decile. 
+
+head(df$binnedInc)
+
+#From stringr package:
+
+df$binnedInc <- str_replace(df$binnedInc, "[(]", "")
+df$binnedInc <- str_replace_all(df$binnedInc, "[)]", "")
+df$binnedInc <- gsub("\\[|\\]", "", df$binnedInc)
+#df$binnedInc <- strsplit(df$binnedInc, ',')
+df$binnedInc <- sapply(strsplit(df$binnedInc, ','), function(x) mean(as.numeric(x)))
+df$binnedInc
+head(df)
+
+
+```
+Next on to do list, remove outliers by checking boxplot quartiles. 
+
+- Do we remove outliers in our dependent variable? 
+
+```{r}
+cor(df)
+```
+```{r}
+heatmap(cor(df), scale="column")
+
+```
+Fuck this is ugly
+
+```{r}
+cormat <- round(cor(df),2)
+head(cormat)
+melt(cormat)
+library(ggplot2)
+ggplot(data = melt(cormat), aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile()
+```
+
+```{r}
+corrplot(cor(df), method = "circle")
+
+```
+
+```{r}
+ #matrix of the p-value of the correlation 
+p.mat <- cor.mtest(df)$p
+corrplot(cor(df), type = "upper", order = "hclust", tl.pos = "td", tl.cex = 0.5, method = "color", 
+         p.mat = p.mat, sig.level = 0.1, insig = "blank")
+```
+We note at the top right side of the correlation plot there is multicollinearity between the variables.
+
+- Add Final table for all removed or cleaned variables
+
+http://www.sthda.com/english/articles/39-regression-model-diagnostics/160-multicollinearity-essentials-and-vif-in-r/
+
+```{r}
+full_model <- lm(TARGET_deathRate ~., data = df)
+vif <-car::vif(full_model)
+#variance inflation factor tells us that the variance of the popEst2015 coefficient is inflated by a factor of 26.43 because popEst2015 is highly correlated with at least one of the other predictors in the model.
+
+vif
+```
+There's no specific cutoff, but based on https://stats.stackexchange.com/questions/342161/how-do-i-know-what-my-vif-limits-should-be-for-collinearity-should-be-when-doing/342181, a cut-off value of 10 seems plausible? 
+
+- Fox Chapter 13: 341, 358
+
+```{r}
+remove_features <- vif[vif > 10]
+remove_features
+```
+
+```{r}
+names(vif[-remove_features])
+```
+
+```{r}
+df2 <- df[,names(vif[-remove_features])]
+df2
+```
+#Next up, whether or not these values r normally distributed. If not -> Log transformation? 
+
+skeleton code: 
+for (i in ncol(df)){
+        gghist(df[i])
+}
+
+```{r}
+p <- 
+for (i in 1:ncol(df2)){
+print(ggplot(df2, aes(x=df2[,i])) + 
+  geom_histogram(color="black", fill="grey", bins = 10) +
+  geom_vline(aes(xintercept = mean(df2[,i])),
+             color = 'blue', size = .5)) +
+  geom_rug(sides = 'b')
+
+}
+
+
+#Things to do: Grid arrange plots
+
+
+
+```
+Skewed graphs include columns 5,15,17,20.
+popEst2015, PctBachDeg25_Over, PctPrivateCoverage,PctWhite.
+```{r}
+df2[,"popEst2015"] <- log(df2[,"popEst2015"])
+df2[,"PctBachDeg25_Over"] <- log(df2[,"PctBachDeg25_Over"])
+df2[,'PctPrivateCoverage'] <- (df2[,"PctPrivateCoverage"])**2
+
+lambda <- BoxCox.lambda(df2[,'PctWhite'])
+df2[,'PctWhite'] <- BoxCox(df2[,'PctWhite'], lambda)
+
+```
+
+
+```{r}
+ggplot(df, aes(x=df2[,'popEst2015'])) + 
+  geom_histogram(color="black", fill="grey") +
+  geom_vline(aes(xintercept = mean(df2[,'popEst2015'])),
+             color = 'blue', size = .5)
+
+ggplot(df, aes(x=df2[,"PctBachDeg25_Over"])) + 
+  geom_histogram(color="black", fill="grey") +
+  geom_vline(aes(xintercept = mean(df2[,"PctBachDeg25_Over"])),
+             color = 'blue', size = .5)
+
+ggplot(df, aes(x=df2[,'PctPrivateCoverage'])) + 
+  geom_histogram(color="black", fill="grey") +
+  geom_vline(aes(xintercept = mean(df2[,'PctPrivateCoverage'])),
+             color = 'blue', size = .5)
+
+ggplot(df, aes(x=df2[,'PctWhite'])) + 
+  geom_histogram(color="black", fill="grey") +
+  geom_vline(aes(xintercept = mean(df2[,'PctWhite'])),
+             color = 'blue', size = .5)
+
+```
+```{r}
+head(df2)
+```
+
