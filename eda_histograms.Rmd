@@ -225,15 +225,21 @@ print(ggplot(df2, aes(x=df2[,i])) +
 
 
 ```
-Skewed graphs include columns 5,15,17,20.
-popEst2015, PctBachDeg25_Over, PctPrivateCoverage,PctWhite.
-```{r}
-df2[,"popEst2015"] <- log(df2[,"popEst2015"])
-df2[,"PctBachDeg25_Over"] <- log(df2[,"PctBachDeg25_Over"])
-df2[,'PctPrivateCoverage'] <- (df2[,"PctPrivateCoverage"])**2
 
-lambda <- BoxCox.lambda(df2[,'PctWhite'])
-df2[,'PctWhite'] <- BoxCox(df2[,'PctWhite'], lambda)
+```{r}
+for (i in 1:ncol(df2)){
+  lambda <- BoxCox.lambda(df2[,i])
+  df2[,i] <- BoxCox(df2[,i], lambda)
+}
+```
+
+We will perform boxcox transformation on everything. 
+```{r}
+#df2[,"popEst2015"] <- log(df2[,"popEst2015"])
+#df2[,"PctBachDeg25_Over"] <- log(df2[,"PctBachDeg25_Over"])
+#df2[,'PctPrivateCoverage'] <- (df2[,"PctPrivateCoverage"])**2
+#lambda <- BoxCox.lambda(df2[,'PctWhite'])
+#df2[,'PctWhite'] <- BoxCox(df2[,'PctWhite'], lambda)
 
 ```
 
@@ -262,5 +268,23 @@ ggplot(df, aes(x=df2[,'PctWhite'])) +
 ```
 ```{r}
 head(df2)
+```
+```{r}
+p <- 
+for (i in 1:ncol(df2)){
+print(ggplot(df2, aes(x=df2[,i])) + 
+  geom_histogram(color="black", fill="grey", bins = 10) +
+  geom_vline(aes(xintercept = mean(df2[,i])),
+             color = 'blue', size = .5)) +
+  geom_rug(sides = 'b')
+
+}
+
+
+```
+
+```{r}
+df2$TARGET_deathRate = df$TARGET_deathRate
+
 ```
 
