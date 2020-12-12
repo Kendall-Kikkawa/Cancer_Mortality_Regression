@@ -27,6 +27,8 @@ https://data.world/nrippner/cancer-linear-regression-model-tutorial
 
 ```{r}
 cancer <- read.csv("Data/cancer_reg.csv")
+# U.S. Department of Agriculture
+## https://www.nrcs.usda.gov/wps/portal/nrcs/detail/national/home/?cid=nrcs143_013697
 fips_codes <- read.csv("Data/FIPS_codes.csv")
 state_abbr <- read.csv("Data/State_Abbreviation_Mapping.csv") 
 ```
@@ -95,16 +97,44 @@ plot_usmap(data = mydata, values = "TARGET_deathRate") +
 ```
 
 ```{r}
+head(mydata)
+```
+
+
+```{r}
 # Plot Target Rate by State
 state_grouped <- mydata %>%
 	group_by(state) %>%
-	summarise(TARGET_deathRate = mean(TARGET_deathRate))
+	summarise(
+	  TARGET_deathRate = mean(TARGET_deathRate),
+	  PctPrivateCoverage = mean(PctPrivateCoverage),
+	  BirthRate = mean(BirthRate)
+	  )
 
 plot_usmap(data = state_grouped, values = "TARGET_deathRate") + 
   scale_fill_continuous(low = "white", high = "red",
                 name = "Death Rate", label = scales::comma) + 
   theme(legend.position = "right")
 ```
+
+# Added in more Plots per Miyabi recommendation
+
+```{r}
+# Plot PctWhite Rate by State
+plot_usmap(data = state_grouped, values = "BirthRate") + 
+  scale_fill_continuous(low = "white", high = "blue",
+                name = "Birth Rate", label = scales::comma) + 
+  theme(legend.position = "right")
+```
+
+```{r}
+# Plot PctPrivateCoverage Rate by State
+plot_usmap(data = state_grouped, values = "PctPrivateCoverage") + 
+  scale_fill_continuous(low = "white", high = "green",
+                name = "Private Coverage", label = scales::comma) + 
+  theme(legend.position = "right")
+```
+
 
 # EDA
 
