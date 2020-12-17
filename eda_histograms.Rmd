@@ -22,16 +22,12 @@ library(forecast)
 library(dummies)
 ```
 
-# Data Cleaning
+# Data Discovery
 
-Find the DataSet here: https://data.world/nrippner/cancer-linear-regression-model-tutorial
 
 ```{r}
+# Read all datasets
 cancer <- read.csv("Data/cancer_reg.csv")
-# U.S. Department of Agriculture
-## https://www.nrcs.usda.gov/wps/portal/nrcs/detail/national/home/?cid=nrcs143_013697
-# Regional data obtained from census.gov
-## https://www2.census.gov/geo/pdfs/maps-data/maps/reference/us_regdiv.pdf
 fips_codes <- read.csv("Data/FIPS_codes.csv")
 state_abbr <- read.csv("Data/State_Abbreviation_Mapping.csv") 
 regions <- read.csv("Data/regions.csv")
@@ -39,50 +35,41 @@ regions <- read.csv("Data/regions.csv")
 ```
 
 ```{r}
-# remove columns with null values
-head(cancer)
-cancer_cleaned <- subset(cancer, select=-c(PctSomeCol18_24, PctEmployed16_Over, 
+# Cleaned N/A columns
+cancer <- subset(cancer, select=-c(PctSomeCol18_24, PctEmployed16_Over, 
                                    PctPrivateCoverageAlone, binnedInc)) 
-# PctSomeCol18_24 had 2285 missing values
-# PctEmployed16_Over had 152 missing values
-# PctPrivateCoverageAlone had 609 missing values
-# binnedInc non-numeric; once converted, gives similar info to medIncome.
 
-print(mean(cancer_cleaned[cancer_cleaned$MedianAge <100,]$MedianAge))
+# Clean coding error, applied log-transformation of PctBachDeg25_Over after plot inspection. 
 
-# Cleaned Coding errors
-cancer_cleaned[cancer_cleaned$MedianAge > 100,]$MedianAge = 40.8
-cancer_cleaned[cancer_cleaned$AvgHouseholdSize < 1,]$AvgHouseholdSize = 1
+cancer[cancer$MedianAge > 100,]$MedianAge = 40.8
+cancer[cancer$AvgHouseholdSize < 1,]$AvgHouseholdSize = 1
+cancer[,"PctBachDeg25_Over"] <- cancer[,"PctBachDeg25_Over"]
 
-names(cancer_cleaned) # Feature names
-dim(cancer_cleaned) # Matrix dimensions
-head(cancer_cleaned)
 ```
 
 ```{r}
-# Map Geopgrahy to County Name and State Columns, fix formatting for future join
-County <- sub(",.*$", "", cancer_cleaned$Geography)
-State <- sub("^.*,\\s*", "", cancer_cleaned$Geography)
+#Joining Datasets, columns w/ Geographic features. 
 
-# Clean County for join with FIPS
+County <- sub(",.*$", "", cancer$Geography)
+State <- sub("^.*,\\s*", "", cancer$Geography)
+
 empty_subs = c(" County", " Parish", " City and Borough", 
                " Municipality", " Borough", " Census Area")
 for (sub_string in empty_subs) {
   County <- sub(sub_string, "", County) 
 }
+
 County <- sub("city", "City", County) 
 County <- sub("St ", "St. ", County) 
 
-# Create New columns
-cancer_cleaned$County<- County
-cancer_cleaned$State <- State
-cancer_cleaned <- subset(cancer_cleaned, select = -c(Geography)) # Redundant
-cancer_cleaned <- cancer_cleaned %>% 
+cancer$County<- County
+cancer$State <- State
+cancer <- subset(cancer, select = -c(Geography)) # Redundant
+cancer<- cancer %>% 
   rename(
     state = State
     )
 
-# Map State Abbreviation to Full Name
 fips_codes$County <- sub("St ", "St. ", fips_codes$County) 
 fips <- merge(fips_codes, state_abbr[, c('State', 'Postal.Abbreviation')], 
       by.x='State', by.y='Postal.Abbreviation', all.x=TRUE)
@@ -91,20 +78,15 @@ fips <- fips %>%
     State.Abbreviation = State,
     state = State.y
     )
-```
-
-```{r}
-# Join FIPS Info
-mydata <- left_join(cancer_cleaned, fips, by=c('County', 'state'))
-mydata <- mydata %>% 
+cancer <- left_join(cancer, fips, by=c('County', 'state'))
+cancer <- cancer %>% 
   rename(
     fips = FIPS
     )
-head(mydata)
-# Join Region and Division Info, drop unecessary columns
-df <- left_join(mydata, regions, by=c('state'))
+
+df <- left_join(cancer, regions, by=c('state'))
 df <- subset(df, select = -c(State.Code, State.Abbreviation) )
-df
+
 ```
 
 
@@ -118,7 +100,6 @@ plot_usmap(data = df, values = "TARGET_deathRate") +
 
 ```{r}
 # Plot Target Rate by State
-
 state_grouped <- df %>%
 	group_by(state) %>%
 	summarise(
@@ -132,9 +113,6 @@ plot_usmap(data = state_grouped, values = "TARGET_deathRate") +
                 name = "Death Rate", label = scales::comma) + 
   theme(legend.position = "right")
 ```
-
-# Added in more Plots per Miyabi recommendation
-
 ```{r}
 # Plot PctWhite Rate by State
 plot_usmap(data = state_grouped, values = "BirthRate") + 
@@ -151,253 +129,36 @@ plot_usmap(data = state_grouped, values = "PctPrivateCoverage") +
   theme(legend.position = "right")
 ```
 
-
-# EDA
-
-We started the EDA process by checking to see if there are any columns that contained substantial missing values. We removed PctSomeCol18_24 (2285 NA), PctEmployed16_Over (152 NA), PctPrivateCoverageAlone (609 NA). Then, to assist in our data visualization process, we mapped geography to county name and state columns and merged fips county codes collected by the USDA into our dataset. We then took out binnedInc as once we changed it into a numeric vector and taking means of every row's lower and upper decile, we decided that it would not be appropriate as it categorizes income into 10 splits and provides similar information as medIncome. 
-
-
-## EDA - Interaction terms
-
-With 23 features to explore, we found it computationally infeasible to test $2^30$ possible interactions, in addition to a search over the $2^23$ possible models (assuming no interactions).
-
-To assess interactions, we opted for a "manual grid search". We hypothesize that the most informative, and likely most interpretable, interactions occur beetween a continuous value and a certain division of the U.S. Divisions are a finer categorization of region, broken down in this table:
-
-| Division | Region| Number of States |
-|:---:|:---:|:---:|
-| New England | Northeast | 6 |
-| Middle Atlantic | Northeast | 3 |
-| East North Central | Midwest | 5 |
-| West North Central | Midwest | 7 |
-| South Atlantic | South | 9 |
-| East South Central | South | 4 |
-| West South Central | South | 4 |
-| Mountain | West | 8 |
-| Pacific | West | 5 |
-
-Excluding `TARGET_deathRate`, we grouped the rest of the features into five main demographic categories:
-
-1. Cancer-related Demographics
-2. General Demographics
-3. Racial Demographics
-4. Education and Employment Demographics
-5. Insurance Coverage Demographics
-6. Income and Household Demographics
-
-Because the target is mean _per capita_ cancer mortalities, we investigated all cancer-related demographics for interactions with division  Within each of groups 2-6, we identifed a top feature that we hypothesized would present the highest likelihood of interaction with division. We then assessed (visually) the validity of a potential interaction. If the signal for interaction was weak, then discontinue searching any variables in that category. If there was interaction, then we inspected possible interactions between division and all other features in that category.
-
-### Cancer-Related Demographics
-
-The features in this category include the following: `avgAnnCount`, `avgDeathsPerYear`, `incidenceRate`, `studyPerCap`
-- maybe don't consider `avgAnnCount` and `avgDeathsPerYear` because they are not scaled?
-
+# EDA 
 ```{r}
-plot_interactions <- function(features, df) {
-  # Function plots all features from given data frame and 
-  # given category to test for interactions
-  plot_list <- list()
-  for (i in 1:length(features)) {
-    sub_df <- df %>%
-      dplyr::select(features[[i]], "TARGET_deathRate", "Division")
-    title <- paste("Interaction between Division and", colnames(sub_df)[1])
-    p <- ggplot(sub_df, aes_string(x=colnames(sub_df)[1], y = "TARGET_deathRate", 
-                                   colour="Division")) + 
-                    geom_point(size = 0.7) + 
-                    geom_smooth(method='lm', formula= y~x, se=FALSE) +
-                    ggtitle(title)
-    plot_list[[i]] <- p
-  }
-  num_rows = ceiling (length(plot_list) / 2)
-  return(grid.arrange(grobs=plot_list, nrow=num_rows))
-}
-```
-
-```{r, fig.width=10, fig.height=5}
-features <- list('incidenceRate', 'studyPerCap')
-plot_interactions(features, df)
-```
-
-In the plots above, we see evidence for interaction between `Division` and `incidenceRate`, but not wtih `studyPerCap`.
-
-### General Demographics
-
-The features in this category include the following: `popEst2015`, `MedianAge`, `MedianAgeFemale`, `BirthRate`
-The proposed candidate feature is `MedianAge`.
-
-```{r, fig.width=10, fig.height=8}
-features <- list('MedianAge', 'popEst2015', 'MedianAgeFemale', 'BirthRate')
-plot_interactions(features, df)
-```
-
-Based on the plots, we conclude that we should investigate the following interactions:
-- Division:MedianAge
-- Division:popEst2015
-- Division:MedianAgeFemale
-- Division:BirthRate
-
-### Racial Demographics
-
-The features in this category include the following: `PctWhite`, `PctBlack`, `PctOtherRace`, 
-The proposed candidate feature is `PctWhite`
-
-```{r, fig.width=10, fig.height=7}
-features <- list('PctWhite', 'PctBlack', 'PctOtherRace')
-plot_interactions(features, df)
-```
-
-We don't see much of a varying relationship for any racial demographics.
-
-### Education and Employment Demographics
-
-The features in this category include the following: `PctBachDeg18_24`, `PctHS25_Over`, `PctBachDeg25_Over`, `PctUnemployed16_Over`
-The proposed candidate feature is `PctUnemployed16_Over`
-
-```{r, fig.width=10, fig.height=7}
-features <- list('PctBachDeg18_24', 'PctHS25_Over', 
-                 'PctBachDeg25_Over', 'PctUnemployed16_Over')
-plot_interactions(features, df)
-```
-
-A little bit of interaction??
-
-### Insurance Coverage Demographics
-
-The features in this category include the following: `PctPrivateCoverage`, `PctEmpPrivCoverage`
-This category only contains two variables, so we will investigate both.
-
-
-```{r, fig.width=10, fig.height=4}
-features <- list('PctPrivateCoverage', 'PctEmpPrivCoverage')
-plot_interactions(features, df)
-```
-
-Slopes appear to be farily consistent across divisions, so we will disregard interactions in regards to insurance coverage.
-
-### Income and Household Demographics
-
-The features in this category include the following: `medIncome`, `povertyPercent`, `AvgHouseholdSize`, `PercentMarried`, `PctMarriedHouseholds`
-The proposed candidate feature is `medianIncome`
-(Plot all below though)
-
-```{r, fig.width=10, fig.height=10}
-features <- list('medIncome', 'povertyPercent',
-                 'AvgHouseholdSize', 'PercentMarried', 'PctMarriedHouseholds')
-plot_interactions(features, df)
-```
-
-Two important issues that we would need to address in for our model to yield substantial information would be linearity, in which there must be a linear relationship between the independent and dependent variables, and multicollinearity, where our independent variables are too highly correlated with one another. We will address the former by using box-tidwell transformations during our model selection process, and we will be dealing with multicollinearity in this section. 
-
-
-Since we have multiple variables for regression, we would want to detect multicollinearity within our regressors. We tackle this issue by construction of a correlation plot and removing variables that yield a high variance inflation factor VIF. We used a cutoff VIF of 10 to remove 8 features from our dataset: avgDeathsPerYear, popEst2015, MedianAgeFemale, MedianAgeMale, MedianAge, PctPrivateCoverage, PctPublicCoverage, and PctPublicCoverageAlone. 
-
-
-Scatterplots are not designed to pick up partial relationships in multiple regression. We want to keep the assumptions of the classical regression model satisfied, where the relationship between our dependent variable and our regressors can be made linear using  transformations on the regressors. As we want to keep interpretability of our dependent variable, TARGET_deathRate, as it is, at # of deaths per 100,000 peoples, we want to instead, work with power transformations of X to linearize our regression of Y on X.
-
-```{r}
+# Create correlation matrix for Non-geographic variables and create a correlation plot. 
 df2 <- df[,c(1:29)]
 
 cor(df2)
-```
 
-```{r}
- #matrix of the p-value of the correlation 
 p.mat <- cor.mtest(df2)$p
+
 corrplot(cor(df2), type = "upper", order = "hclust", tl.pos = "td", tl.cex = 0.5, method = "color", 
          p.mat = p.mat, sig.level = 0.1, insig = "blank")
 ```
 
 ```{r}
+# Variance-inflation factor to account for multicollinear variables and remove said features.
 full_model <- lm(TARGET_deathRate ~., data = df2)
 vif <-car::vif(full_model)
-#variance inflation factor tells us that the variance of the popEst2015 coefficient is inflated by a factor of 26.39 because popEst2015 is highly correlated with at least one of the other predictors in the model.
 
-vif
-```
-
-```{r}
 remove_features <- vif[vif > 10]
 remove_features
-```
 
-```{r}
-names(remove_features)
-```
 
-```{r}
-#df <- df[, !names(df2) %in% names(remove_features)]
+
 df <- df[, !names(df) %in% names(remove_features)]
-head(df)
 
-
-```
-
-# OHE State
-
-```{r}
+# One-Hot Encode state names 
 df_state_ohe <- dummy.data.frame(df, names=c("state"), sep="_")
-```
-
-
-```{r}
-write.csv(df_state_ohe,'Data/geography_cleaned.csv', row.names = FALSE)
-```
-
-
-#### ignore everything below this line for now, will replace with pairs plot####
-
-#p <- 
-#for (i in 1:ncol(df2)){
-#print(ggplot(df2, aes(x=df2[,i])) + 
-# geom_histogram(color="black", fill="grey", bins = 10) +
-# geom_vline(aes(xintercept = mean(df2[,i])),
-#             color = 'blue', size = .5)) +
-#  geom_rug(sides = 'b')
-
-}
-
-
-
 
 ```
 
-
-for (i in 1:ncol(df2)){
-  lambda <- BoxCox.lambda(df2[,i])
-  df2[,i] <- BoxCox(df2[,i], lambda)
-}
-```
-
-
-#df2[,"popEst2015"] <- log(df2[,"popEst2015"])
-#df2[,"PctBachDeg25_Over"] <- log(df2[,"PctBachDeg25_Over"])
-#df2[,'PctPrivateCoverage'] <- (df2[,"PctPrivateCoverage"])**2
-#lambda <- BoxCox.lambda(df2[,'PctWhite'])
-#df2[,'PctWhite'] <- BoxCox(df2[,'PctWhite'], lambda)
-
-```
-
-
-ggplot(df, aes(x=df2[,'popEst2015'])) + 
-  geom_histogram(color="black", fill="grey") +
-  geom_vline(aes(xintercept = mean(df2[,'popEst2015'])),
-             color = 'blue', size = .5)
-
-ggplot(df, aes(x=df2[,"PctBachDeg25_Over"])) + 
-  geom_histogram(color="black", fill="grey") +
-  geom_vline(aes(xintercept = mean(df2[,"PctBachDeg25_Over"])),
-             color = 'blue', size = .5)
-
-ggplot(df, aes(x=df2[,'PctPrivateCoverage'])) + 
-  geom_histogram(color="black", fill="grey") +
-  geom_vline(aes(xintercept = mean(df2[,'PctPrivateCoverage'])),
-             color = 'blue', size = .5)
-
-ggplot(df, aes(x=df2[,'PctWhite'])) + 
-  geom_histogram(color="black", fill="grey") +
-  geom_vline(aes(xintercept = mean(df2[,'PctWhite'])),
-             color = 'blue', size = .5)
-
-```
 
 
 
