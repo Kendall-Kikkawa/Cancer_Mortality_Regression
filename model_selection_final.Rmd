@@ -1,0 +1,175 @@
+---
+output: pdf_document
+---
+```{r setup, include=FALSE}
+options(warn=-1)
+suppressWarnings(suppressMessages(library(glmnet)))
+suppressWarnings(suppressMessages(library(leaps)))
+suppressWarnings(suppressMessages(library(DAAG)))
+library(knitr)
+library(kableExtra)
+library(gpairs)
+library(grid)
+library(lattice)
+library(ggplot2)
+library(ggpubr)
+library(car)
+library(forecast)
+```
+
+```{r, echo=FALSE, results=FALSE}
+df <- read.csv('Data/vif_removed_features.csv')
+df <- na.omit(df)
+df$County <- NULL
+df$fips <- NULL
+df$Region <- NULL
+df
+```
+# Additional Work
+
+## Model Selection
+
+Because our model is focused on prediction rather than causal inference, we decided to undergo a rigorous variable selection process. After removing variables deemed too severely multicollinear, we're left with a "full" model consisting of 21 explanatory variables.
+
+```{r, echo=FALSE, results=FALSE}
+full_model <- lm(TARGET_deathRate ~ ., data=df)
+summary(full_model)
+```
+The reason we chose to screen our variables with VIF beforehand is that removing explanatory variables that are collinear not only helps with the assumptions of linear regression, but also helps computationally, as we have less variables to search through when searching for the best model. 
+
+### Screening With LASSO
+
+Before performing best subsets regression, we decided to run LASSO on our model in order to get a sense of variable importance in a predictive context.
+
+```{r, echo=FALSE}
+# glmnet uses matrix-vector syntax, not formula syntax
+# Create model matrix (variables automatically standardized by glmnet; intercept automatically included)
+X <- model.matrix(TARGET_deathRate ~ ., df)[, -1]
+y <- df$TARGET_deathRate
+
+# Fit lasso path over lambda.grid
+lasso.mod <- glmnet(x = X, y = y, alpha = 1)
+#cross validated lasso 
+cv.lasso.mod <- cv.glmnet(x = X, y = y, alpha = 1, nfolds = 10)
+#plot(cv.lasso.mod)
+
+best.lasso.lam <- cv.lasso.mod$lambda.min
+
+# Plot the lasso path on the lambda scale and add a line for the values at the best lambda
+plot(lasso.mod, xvar = "lambda")
+lines(c(log(best.lasso.lam), log(best.lasso.lam)), 
+      c(-1000, 1000), lty = "dashed", lwd = 3)
+```
+
+**Figure 1:** Lasso coefficient trails. The dotted line marks the optimal lambda.
+
+```{r, echo=FALSE, results=FALSE}
+# LASSO results
+best.lasso.coefs <- predict(lasso.mod, type = 'coefficients', s = best.lasso.lam)
+best.lasso.coefs
+lasso_model <- lm(TARGET_deathRate ~ ., data=df)
+```
+
+Taking a look at the results of LASSO, we see that none of our coefficients have been zeroed out, meaning that we will need to take a look at other variable selection methods if we want to shrink our model. As a result, we explore a different method of model shrinkage: best subsets regression.
+
+### Best Subsets Regression
+
+Best subsets regression exhaustively searches every combination of variables for every possible model size and selects the best models for each model size according to different criteria. The criteria we considered were Adjusted R^2, Mallow's Cp, and BIC.
+```{r, echo=FALSE, results=FALSE}
+regfit.full = regsubsets(TARGET_deathRate ~ ., method = "exhaustive", data = df, nvmax = 30)
+satreg.summary = summary(regfit.full)
+
+# Dataframe with best number of coefficients for each model
+data.frame(
+  Adj.R2 = which.max(satreg.summary$adjr2),
+  CP = which.min(satreg.summary$cp),
+  BIC = which.min(satreg.summary$bic)
+)
+```
+```{r, echo=FALSE}
+entries <- c("24", "22", "16")
+tbl<-matrix(entries,ncol=3,byrow=TRUE)
+rownames(tbl)<-c("Number of Variables")
+colnames(tbl)<-c("Adjusted R^2", "Mallow's Cp", "BIC")
+tbl1 <- as.table(tbl)
+tbl %>%
+  kbl() %>%
+  kable_classic_2(full_width = F)
+```
+
+**Table 1:** The number of variables in the "best" model as chosen by various criteria.
+
+As seen in **Table 1**, Adjusted R^2 as our criterion resulted in the largest model, while BIC as our criterion resulted in the smallest model. Taking a closer look at the actual models that were selected, we see that some of our dummy variables for our only categorical variable, region, endedup being dropped by best subset regression. Because it's not possible to write a formula that drops some of these dummy variables as well as the fact that the majority of dummy variables were kept for all 3 models, we chose to keep Division in all 3 of our models even if some of the dummy variables ended being dropped. This isn't too consequential as in the Adjusted R^2 model and the Mallow's Cp Model, only the dummy variable associated with the South Atlantic division is dropped, while in the BIC model, only the dummy variables associated with the South Atlantic division and New England division are dropped.
+```{r, echo=FALSE, results=FALSE}
+# Adjusted R^2
+satreg.summary$which[24,]
+adjusted_r2_model <- lm(TARGET_deathRate ~ . - studyPerCap - PctNoHS18_24 - PctAsian, data=df)
+
+# Mallow's Cp
+satreg.summary$which[22,]
+cp_model <- lm(TARGET_deathRate ~ . - avgAnnCount - studyPerCap - AvgHouseholdSize - PctNoHS18_24 - PctAsian, data=df)
+# BIC
+satreg.summary$which[16,]
+bic_model <- lm(TARGET_deathRate ~ . - avgAnnCount - medIncome - studyPerCap - AvgHouseholdSize - PercentMarried - PctNoHS18_24 - PctBachDeg18_24 - PctEmpPrivCoverage - PctAsian - BirthRate, data=df)
+```
+
+### Cross Validation
+
+After creating our models (2 distinct ones in this case), it's clear the the criteria don't agree on which model is the best. In order to assess the performance of our models, we need to evaluate the predictive ability of our models on data they have never seen before. Rather than using a train-test split of our data, we decided to use cross validation since cross validation tends to smooth out noise or randomness, and also provides more precision while reducing bias as we have more data for fitting the models. Leave-one-out CV is too computationally expensive due to the large number of rows, so we went with k-fold CV instead with a fold size of 10. We also computed the MSE from CV for the full model as well as the LASSO model to serve as comparisons.
+
+```{r, fig.show='hide', results=FALSE, echo=FALSE}
+# Calculating MSEs for each model
+full.cv <- cv.lm(data=df, full_model, m=10)
+full.mse <- attr(full.cv, "ms")
+
+lasso.cv <- cv.lm(data=df, lasso_model, m=10)
+lasso.mse <- attr(lasso.cv, "ms")
+
+adjr2.cv <- cv.lm(data=df, adjusted_r2_model, m=10)
+adjr2.mse <- attr(adjr2.cv, "ms")
+
+cp.cv <- cv.lm(data=df, cp_model, m=10)
+cp.mse <- attr(cp.cv, "ms")
+
+bic.cv <- cv.lm(data=df, bic_model, m=10)
+bic.mse <- attr(bic.cv, "ms")
+```
+```{r, results=FALSE, echo=FALSE}
+# CV MSE
+full.mse
+lasso.mse
+adjr2.mse
+cp.mse
+bic.mse
+```
+
+```{r, echo=FALSE}
+entries <- c("358", "358", "358", "357", "359")
+tbl<-matrix(entries,ncol=5,byrow=TRUE)
+rownames(tbl)<-c("MSE")
+colnames(tbl)<-c("Full Model", "LASSO Model", "Adjusted R^2 Model", "Mallow's Cp Model", "BIC Model")
+tbl2 <- as.table(tbl)
+tbl %>%
+  kbl() %>%
+  kable_classic_2(full_width = F)
+```
+
+**Table 2:** The MSE from k-fold CV of our various models. Note that the MSE of our full model and LASSO model are the same since the two models are the same (albeit it's definitely possible for two different models to have the same MSE).
+
+As seen in **Table 2**, the model with the lowest MSE ended up being our Mallow's Cp model, so we'll go ahead and choose that model as our "final" model for this step.
+
+### Model Diagnostics
+
+```{r, echo=FALSE, results=FALSE}
+summary(cp_model)
+```
+
+```{r, echo=FALSE}
+# Diagnostic Plots
+par(mfrow = c(2,2))
+plot(cp_model)
+```
+
+**Figure 2:** Diagnostic plots of the chosen model.
+
+We notice an outlier in our residual plots in **Figure 2** that reveal a point with a somewhat high leverage. After investgating the possibility of an encoding error, we discovered that this point belonged to Union County, Florida which is known to have a disproportionately high cancer death rate compared to the rest of the United States, so we left that data point in. Something that was concerning during EDA was that a few of our explanatory variables didn't have normal distributions. When we tried applying a Box-Cox transformation to them, our variable selection process ended up not dropping any variables and had a high R^2, but our model diagnostics revealed that assumptions of linear regression were being broken due to residuals not being randomly scattered about the fitted line. Applying a Box-Tidwell transformation at this stage of model selection was considered, but due to powers being pushed to infinity during iterations and being unable to diagnose this issue as Box-Tidwell wasn't covered in class, we decided to not continue pursuing this particular transformation. The diagnostics of the model reveal that the assumptions of linear regression are mostly followed anyways, so a transformation wouldn't necessarily create a huge improvement.
