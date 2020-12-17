@@ -21,9 +21,9 @@ library(cowplot)
 library(forecast)
 ```
 
-DataSet
+# Data Cleaning
 
-https://data.world/nrippner/cancer-linear-regression-model-tutorial
+Find the DataSet here: https://data.world/nrippner/cancer-linear-regression-model-tutorial
 
 ```{r}
 cancer <- read.csv("Data/cancer_reg.csv")
@@ -52,7 +52,6 @@ print(mean(cancer_cleaned[cancer_cleaned$MedianAge <100,]$MedianAge))
 cancer_cleaned[cancer_cleaned$MedianAge > 100,]$MedianAge = 40.8
 cancer_cleaned[cancer_cleaned$AvgHouseholdSize < 1,]$AvgHouseholdSize = 1
 
-
 names(cancer_cleaned) # Feature names
 dim(cancer_cleaned) # Matrix dimensions
 head(cancer_cleaned)
@@ -76,6 +75,10 @@ County <- sub("St ", "St. ", County)
 cancer_cleaned$County<- County
 cancer_cleaned$State <- State
 cancer_cleaned <- subset(cancer_cleaned, select = -c(Geography)) # Redundant
+cancer_cleaned <- cancer_cleaned %>% 
+  rename(
+    state = State
+    )
 
 # Map State Abbreviation to Full Name
 fips_codes$County <- sub("St ", "St. ", fips_codes$County) 
@@ -84,21 +87,20 @@ fips <- merge(fips_codes, state_abbr[, c('State', 'Postal.Abbreviation')],
 fips <- fips %>% 
   rename(
     State.Abbreviation = State,
-    State = State.y
+    state = State.y
     )
 ```
 
-
 ```{r}
 # Join FIPS Info
-mydata <- left_join(cancer_cleaned, fips, by=c('County', 'State'))
+mydata <- left_join(cancer_cleaned, fips, by=c('County', 'state'))
 mydata <- mydata %>% 
   rename(
     fips = FIPS
     )
 head(mydata)
 # Join Region and Division Info, drop unecessary columns
-df <- left_join(mydata, regions, by=c('State'))
+df <- left_join(mydata, regions, by=c('state'))
 df <- subset(df, select = -c(State.Abbreviation, State.Code) )
 df
 ```
@@ -208,7 +210,7 @@ plot_interactions <- function(features, df) {
 }
 ```
 
-```{r}
+```{r, fig.width=10, fig.height=5}
 features <- list('incidenceRate', 'studyPerCap')
 plot_interactions(features, df)
 ```
@@ -220,23 +222,23 @@ In the plots above, we see evidence for interaction between `Division` and `inci
 The features in this category include the following: `popEst2015`, `MedianAge`, `MedianAgeFemale`, `BirthRate`
 The proposed candidate feature is `MedianAge`.
 
-```{r, fig.width=7, fig.height=5}
+```{r, fig.width=10, fig.height=8}
 features <- list('MedianAge', 'popEst2015', 'MedianAgeFemale', 'BirthRate')
 plot_interactions(features, df)
 ```
 
 Based on the plots, we conclude that we should investigate the following interactions:
 - Division:MedianAge
-- Division: popEst2015
-- Division: MedianAgeFemale
-- Division: BirthRate
+- Division:popEst2015
+- Division:MedianAgeFemale
+- Division:BirthRate
 
 ### Racial Demographics
 
 The features in this category include the following: `PctWhite`, `PctBlack`, `PctOtherRace`, 
 The proposed candidate feature is `PctWhite`
 
-```{r, fig.width=7, fig.height=5}
+```{r, fig.width=10, fig.height=7}
 features <- list('PctWhite', 'PctBlack', 'PctOtherRace')
 plot_interactions(features, df)
 ```
@@ -248,7 +250,7 @@ We don't see much of a varying relationship for any racial demographics.
 The features in this category include the following: `PctBachDeg18_24`, `PctHS25_Over`, `PctBachDeg25_Over`, `PctUnemployed16_Over`
 The proposed candidate feature is `PctUnemployed16_Over`
 
-```{r, fig.width=7, fig.height=5}
+```{r, fig.width=10, fig.height=7}
 features <- list('PctBachDeg18_24', 'PctHS25_Over', 
                  'PctBachDeg25_Over', 'PctUnemployed16_Over')
 plot_interactions(features, df)
@@ -262,7 +264,7 @@ The features in this category include the following: `PctPrivateCoverage`, `PctE
 This category only contains two variables, so we will investigate both.
 
 
-```{r, fig.width=7, fig.height=3}
+```{r, fig.width=10, fig.height=4}
 features <- list('PctPrivateCoverage', 'PctEmpPrivCoverage')
 plot_interactions(features, df)
 ```
@@ -271,20 +273,17 @@ Slopes appear to be farily consistent across divisions, so we will disregard int
 
 ### Income and Household Demographics
 
-The features in this category include the following: `medIncome`, `binnedInc`, `povertyPercent`, `AvgHouseholdSize`, `PercentMarried`, `PctMarriedHouseholds`
+The features in this category include the following: `medIncome`, `povertyPercent`, `AvgHouseholdSize`, `PercentMarried`, `PctMarriedHouseholds`
 The proposed candidate feature is `medianIncome`
 (Plot all below though)
 
-```{r, fig.width=7, fig.height=8}
-features <- list('medIncome', 'binnedInc', 'povertyPercent',
+```{r, fig.width=10, fig.height=10}
+features <- list('medIncome', 'povertyPercent',
                  'AvgHouseholdSize', 'PercentMarried', 'PctMarriedHouseholds')
 plot_interactions(features, df)
 ```
 
-
-
 Two important issues that we would need to address in for our model to yield substantial information would be linearity, in which there must be a linear relationship between the independent and dependent variables, and multicollinearity, where our independent variables are too highly correlated with one another. We will address the former by using box-tidwell transformations during our model selection process, and we will be dealing with multicollinearity in this section. 
-
 
 
 Since we have multiple variables for regression, we would want to detect multicollinearity within our regressors. We tackle this issue by construction of a correlation plot and removing variables that yield a high variance inflation factor VIF. We used a cutoff VIF of 10 to remove 8 features from our dataset: avgDeathsPerYear, popEst2015, MedianAgeFemale, MedianAgeMale, MedianAge, PctPrivateCoverage, PctPublicCoverage, and PctPublicCoverageAlone. 
@@ -326,9 +325,6 @@ names(remove_features)
 df <- df[, !names(df2) %in% names(remove_features)]
 head(df)
 
-
-```
-```{r}
 
 ```
 
