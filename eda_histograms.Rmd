@@ -19,6 +19,7 @@ library(car) #VIF
 library(gridExtra)
 library(cowplot)
 library(forecast)
+library(dummies)
 ```
 
 # Data Cleaning
@@ -49,6 +50,7 @@ cancer_cleaned <- subset(cancer, select=-c(PctSomeCol18_24, PctEmployed16_Over,
 
 print(mean(cancer_cleaned[cancer_cleaned$MedianAge <100,]$MedianAge))
 
+# Cleaned Coding errors
 cancer_cleaned[cancer_cleaned$MedianAge > 100,]$MedianAge = 40.8
 cancer_cleaned[cancer_cleaned$AvgHouseholdSize < 1,]$AvgHouseholdSize = 1
 
@@ -101,7 +103,7 @@ mydata <- mydata %>%
 head(mydata)
 # Join Region and Division Info, drop unecessary columns
 df <- left_join(mydata, regions, by=c('state'))
-df <- subset(df, select = -c(State.Abbreviation, State.Code) )
+df <- subset(df, select = -c(State.Code, State.Abbreviation) )
 df
 ```
 
@@ -135,18 +137,18 @@ plot_usmap(data = state_grouped, values = "TARGET_deathRate") +
 
 ```{r}
 # Plot PctWhite Rate by State
-#plot_usmap(data = state_grouped, values = "BirthRate") + 
-# scale_fill_continuous(low = "white", high = "blue",
-#                name = "Birth Rate", label = scales::comma) + 
-#  theme(legend.position = "right")
+plot_usmap(data = state_grouped, values = "BirthRate") + 
+ scale_fill_continuous(low = "white", high = "blue",
+                name = "Birth Rate", label = scales::comma) + 
+  theme(legend.position = "right")
 ```
 
 ```{r}
 # Plot PctPrivateCoverage Rate by State
-#plot_usmap(data = state_grouped, values = "PctPrivateCoverage") + 
-#  scale_fill_continuous(low = "white", high = "green",
-#                name = "Private Coverage", label = scales::comma) + 
-#  theme(legend.position = "right")
+plot_usmap(data = state_grouped, values = "PctPrivateCoverage") + 
+  scale_fill_continuous(low = "white", high = "green",
+                name = "Private Coverage", label = scales::comma) + 
+  theme(legend.position = "right")
 ```
 
 
@@ -322,10 +324,22 @@ names(remove_features)
 ```
 
 ```{r}
-df <- df[, !names(df2) %in% names(remove_features)]
+#df <- df[, !names(df2) %in% names(remove_features)]
+df <- df[, !names(df) %in% names(remove_features)]
 head(df)
 
 
+```
+
+# OHE State
+
+```{r}
+df_state_ohe <- dummy.data.frame(df, names=c("state"), sep="_")
+```
+
+
+```{r}
+write.csv(df_state_ohe,'Data/geography_cleaned.csv', row.names = FALSE)
 ```
 
 
