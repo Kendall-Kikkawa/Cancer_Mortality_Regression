@@ -41,7 +41,7 @@ The reason we chose to screen our variables with VIF beforehand is that removing
 
 Before performing best subsets regression, we decided to run LASSO on our model in order to get a sense of variable importance in a predictive context.
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, fig.height = 3.5, fig.width = 5, fig.align = "center"}
 # glmnet uses matrix-vector syntax, not formula syntax
 # Create model matrix (variables automatically standardized by glmnet; intercept automatically included)
 X <- model.matrix(TARGET_deathRate ~ ., df)[, -1]
@@ -74,7 +74,7 @@ Taking a look at the results of LASSO, we see that none of our coefficients have
 
 ### Best Subsets Regression
 
-Best subsets regression exhaustively searches every combination of variables for every possible model size and selects the best models for each model size according to different criteria. The criteria we considered were Adjusted R^2, Mallow's Cp, and BIC.
+Best subsets regression exhaustively searches every combination of variables for every possible model size and selects the best models for each model size according to different criteria. The criteria we considered were Adjusted R^2, Mallow's Cp, and BIC. We chose these three criteria since they're supported by the R function regsubsets, and we wanted to use the same library for the sake of consistency in model selection.
 ```{r, echo=FALSE, results=FALSE}
 regfit.full = regsubsets(TARGET_deathRate ~ ., method = "exhaustive", data = df, nvmax = 30)
 satreg.summary = summary(regfit.full)
@@ -97,9 +97,9 @@ tbl %>%
   kable_classic_2(full_width = F)
 ```
 
-**Table 1:** The number of variables in the "best" model as chosen by various criteria.
+**Table 1:** The number of variables in the "best" model as chosen by various criteria. Note that the number of variables has increased due to dummy variables being added to the model.
 
-As seen in **Table 1**, Adjusted R^2 as our criterion resulted in the largest model, while BIC as our criterion resulted in the smallest model. Taking a closer look at the actual models that were selected, we see that some of our dummy variables for our only categorical variable, region, endedup being dropped by best subset regression. Because it's not possible to write a formula that drops some of these dummy variables as well as the fact that the majority of dummy variables were kept for all 3 models, we chose to keep Division in all 3 of our models even if some of the dummy variables ended being dropped. This isn't too consequential as in the Adjusted R^2 model and the Mallow's Cp Model, only the dummy variable associated with the South Atlantic division is dropped, while in the BIC model, only the dummy variables associated with the South Atlantic division and New England division are dropped.
+As seen in **Table 1**, Adjusted R^2 as our criterion resulted in the largest model, while BIC as our criterion resulted in the smallest model. Taking a closer look at the actual models that were selected, we see that some of our dummy variables for our only categorical variable, region, ended up being dropped by best subset regression. Because it's not possible to write a formula that drops some of these dummy variables as well as the fact that the majority of dummy variables were kept for all 3 models, we chose to keep Division in all 3 of our models even if some of the dummy variables ended being dropped. This isn't too consequential as in the Adjusted R^2 model and the Mallow's Cp Model, only the dummy variable associated with the South Atlantic division is dropped, while in the BIC model, only the dummy variables associated with the South Atlantic division and New England division are dropped.
 ```{r, echo=FALSE, results=FALSE}
 # Adjusted R^2
 satreg.summary$which[24,]
@@ -164,12 +164,76 @@ As seen in **Table 2**, the model with the lowest MSE ended up being our Mallow'
 summary(cp_model)
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, fig.height=4}
 # Diagnostic Plots
-par(mfrow = c(2,2))
+par(mfrow = c(2,2), mai=c(0.3, 0.3, 0.3, 0.3))
 plot(cp_model)
 ```
 
 **Figure 2:** Diagnostic plots of the chosen model.
 
 We notice an outlier in our residual plots in **Figure 2** that reveal a point with a somewhat high leverage. After investgating the possibility of an encoding error, we discovered that this point belonged to Union County, Florida which is known to have a disproportionately high cancer death rate compared to the rest of the United States, so we left that data point in. Something that was concerning during EDA was that a few of our explanatory variables didn't have normal distributions. When we tried applying a Box-Cox transformation to them, our variable selection process ended up not dropping any variables and had a high R^2, but our model diagnostics revealed that assumptions of linear regression were being broken due to residuals not being randomly scattered about the fitted line. Applying a Box-Tidwell transformation at this stage of model selection was considered, but due to powers being pushed to infinity during iterations and being unable to diagnose this issue as Box-Tidwell wasn't covered in class, we decided to not continue pursuing this particular transformation. The diagnostics of the model reveal that the assumptions of linear regression are mostly followed anyways, so a transformation wouldn't necessarily create a huge improvement.
+
+### Adding States to the Model
+
+While we have region as one of the variables in our model, it's possible that certain states may go against the trend of the region. As a result, we will consider adding states as variables to our model. Doing so will allow the coefficient of a state to "counteract" the coefficient of its region in the event that a state is significantly different than its region. In order to decide which states to add to our model, we will use forward selection using AIC and BIC as our criteria. We chose to do forward selection rather than best subsets regression here due to the large number of additional columns we have added via one hot encoding the state variable. We chose AIC and BIC as our criteria since they're supported by the step function and we want to use the same library for the sake of consistency during model selection.
+
+```{r, echo=FALSE, results=FALSE}
+states_df <- read.csv('Data/geography_cleaned.csv')
+states_df <- na.omit(states_df)
+states_df$County <- NULL
+states_df$fips <- NULL
+states_df$Region <- NULL
+states_df$avgAnnCount <- NULL
+states_df$studyPerCap <- NULL
+states_df$AvgHouseholdSize <- NULL
+states_df$PctNoHS18_24 <- NULL
+states_df$PctAsian <- NULL
+states_df
+```
+```{r, echo=FALSE}
+final_model <- lm(TARGET_deathRate ~ incidenceRate + medIncome + 
+    povertyPercent + PercentMarried + PctHS18_24 + PctBachDeg18_24 + PctHS25_Over + 
+    PctBachDeg25_Over + PctUnemployed16_Over + PctEmpPrivCoverage + 
+    PctWhite + PctBlack + PctOtherRace + PctMarriedHouseholds + 
+    BirthRate + Division, data=states_df)
+```
+
+```{r, echo=FALSE}
+# Forward Selection with AIC
+biggest <- formula(lm(TARGET_deathRate ~ ., data = states_df))
+fwd.aic <- step(final_model, direction = "forward", scope = biggest, trace=0)
+
+# Forward Selection with BIC
+fwd.bic <- step(final_model, direction = "forward", scope = biggest, k=log(nrow(states_df)), trace=0)
+```
+```{r, echo=FALSE, results=FALSE}
+fwd.aic
+fwd.bic
+```
+```{r, fig.show='hide', results=FALSE, echo=FALSE}
+# Calculating MSEs for each model
+fwd.aic.cv <- cv.lm(data=states_df, fwd.aic, m=10)
+fwd.aic.mse <- attr(fwd.aic.cv, "ms")
+
+fwd.bic.cv <- cv.lm(data=states_df, fwd.bic, m=10)
+fwd.bic.mse <- attr(fwd.bic.cv, "ms")
+```
+```{r, echo=FALSE, results=FALSE}
+fwd.aic.mse
+fwd.bic.mse
+```
+
+```{r, echo=FALSE, results=FALSE}
+entries <- c("20", "7")
+tbl<-matrix(entries,ncol=2,byrow=TRUE)
+rownames(tbl)<-c("States Added")
+colnames(tbl)<-c("AIC", "BIC")
+tbl3 <- as.table(tbl)
+tbl %>%
+  kbl() %>%
+  kable_classic_2(full_width = F)
+```
+The results of our forward selection reveal that adding states does in fact add precision to our model - AIC adds 20 states to our model and BIC adds 7 states to our model. AIC adds significantly more variables than BIC, though that's not surprising considering that BIC penalizes model complexity more heavily. The states chosen by both BIC and AIC tend to be in the Southern and Midwest regions of the United States, perhaps revealing that these regions contain many outlier states. In order to determine which model fits the data better, we again ran k-fold cross validation (with a fold size of 10) on these two models and because the AIC model had a lower MSE, we chose the AIC model as our "final" model for this stage of the model selection process. Our model now has 43 total variables (counting the dummy variables for Division as separate variables) with the addition of the 20 state variables.
+
+### Exploring Interactions
