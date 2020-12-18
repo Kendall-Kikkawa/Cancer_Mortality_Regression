@@ -163,7 +163,10 @@ df[,1] <- BoxCox(df[,1],lambda)
 head(df)
 # One-Hot Encode state names 
 df_state_ohe <- dummy.data.frame(df, names=c("state"), sep="_")
+df_state_ohe$State <- df$state
 
+
+#write.csv(df_state_ohe, "Data/geography_cleaned.csv")
 ```
 
 

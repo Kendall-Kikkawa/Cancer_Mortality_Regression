@@ -26,6 +26,9 @@ library(lm.beta)
 library(jtools)
 library(maps)
 library(mapdata)
+library(sjPlot)
+library(sjlabelled)
+library(sjmisc)
 ```
 
 ```{r}
@@ -203,29 +206,20 @@ print(bh_model.mse)
 print(bonf_model.mse)
 ```
 
-```{r}
-summary(bh_model)
-```
-
 ```{r, fig.width=10, fig.height=6}
-# Coefficient Plots
+### Coefficient Plots
+
 #dwplot(bh_model)
 #plot_coefs(bh_model, rescale.distributions = TRUE)
 ```
 
-```{r}
-sort(coef(lm.beta(bh_model)))
+```{r, fig.width=7, fig.height=7}
+plot_model(bh_model, sort.est = TRUE, type="std")
 ```
 
 
+
 ```{r}
-# usmap::plot_usmap("counties", fill = "red", alpha = 0.25,
-#                   # 06065 = Riverside County, CA
-#                   include = c(.south_region, "IA", "06065"),
-#                   # 12 = FL, 48141 = El Paso County, TX
-#                   exclude = c(.east_south_central, "12", "48141"))
-
-
 plot_usmap(
     data = states_df, values = "TARGET_deathRate", include = .south_region, color = "red"
   ) + 
@@ -237,50 +231,56 @@ plot_usmap(
 ```
 
 ```{r}
+# Load Lat/Lon data
 usa <- map_data("usa")
 states <- map_data("state")
 AllCounty <- map_data("county")
 ```
 
 ```{r}
-states_df[order(-states_df$TARGET_deathRate),]
+# Make Predictions for each county
+states_df$predictedRates <- c(predict(bh_model, states_df))
 ```
 
 ```{r}
-AllCounty
-```
-
-
-```{r}
-gg1 <- ggplot() + geom_polygon( data=AllCounty, aes(x=long, y=lat, group=group),
-                color="darkblue", fill="lightblue", size = .1 ) +
+plot_top_counties <- function(n) {
+  # Plot predicted vs actual
+  # n: top counties we want to visualize (int)
+  county_df <- AllCounty
+  plot_list <- list()
+  columns <- c("TARGET_deathRate", "predictedRates")
   
-          geom_polygon( data=states, aes(x=long, y=lat, group=group),
-                color="black", fill="lightblue",  size = 0.7, alpha = .3)
-
-# gg1 <- ggplot() + 
-#   geom_polygon(data = states, aes(x=long, y = lat,
-#                                group = group), 
-#                               color = "black",
-#                               fill='cornflowerblue') + 
-#   coord_fixed(1.3)
-
-labs <- data.frame(
-  long = c(-82.3452, -95.8143, -90.0373, -83.8261, -83.2078,
-           -83.2078, -83.7199),
-  lat = c(30.0745, 37.9198, 32.6729, 37.8381, 37.3161,
-          36.8890, 37.5994),
-  names = c("Union, FL", "Woodson, KA", "Madison, MS",
-            "Powell, KN", "Perry, KN", "Harlan, KN",
-            "Lee, KN")
-  ) 
-
-gg1 +
-  geom_point(data = labs, aes(x = long, y = lat),
-             color = "red", size = 2)
+  for (i in 1:2) {
+    column <- columns[i]
+    topN <- states_df[order(-states_df[column]),][1:n, ]
+    
+    topactual_counties <- tolower(topN$County)
+    topactual_states <- tolower(topN$State)
+    
+    county_df$DeathRate <- ifelse((county_df$subregion %in% topactual_counties) & 
+                            (county_df$region %in% topactual_states) , 'High', 'Low')
+    
+    sub <- paste0("Top ", n, " Counties with highest rates")
+    if (column == "TARGET_deathRate") {
+      title <- "Actual Death Rates"
+    } else {
+      title <- "Predicted Death Rates"
+    }
+    
+    p <- ggplot() + geom_polygon(data=states, aes(x=long, y=lat, group=group),
+                  color="black", size = 0.5) +
+            geom_polygon(data=county_df, aes(x=long, y=lat, 
+                  group=group, fill=DeathRate),
+                  color="black",  size = 0.3) +
+          scale_fill_brewer(palette="Set1") +
+          ggtitle(title, subtitle=sub) +
+          theme(legend.position = "none")
+    plot_list[[i]] <- p
+  }
+  return(grid.arrange(grobs=plot_list, nrow=1))
+}
 ```
-```{r}
-labs
+
+```{r, fig.width=10, fig.height=3}
+plot_top_counties(300)
 ```
-
-
