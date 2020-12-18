@@ -151,7 +151,7 @@ Our final model ends up regressing on 78 variables. This number includes the var
 
 # Discussion and Future Improvements
 
-< insert section here>
+If we were to widen our project scope, we would like to further develop this model by fitting it to specific types of cancer. In those types of scenarios, perhaps we can analyze common statistically significant variables and see their association with the cancer’s death rate for a county.  Another idea we briefly discussed would be to work with government  institutions to see if we can collect more data for feature engineering. For example, say if we were somehow able to aggregate another set of demographic features at the county level,  how might we be able to fit them into our model, and account for interactions with existing variables.  Since our dataset was based on aggregated data from 2010-2015 estimates, working with future data to forecast county death rates for counties would be serve as an excellent addendum to our project. 
 
 \newpage
 
@@ -494,10 +494,16 @@ for (i in 1:length(interactions)) {
 
 # References
 
-1.
-2.
-3.
-
+1.https://www.businessinsider.com/union-county-is-least-healthy-in-us-2017-10
+2.https://www.cancer.org/latest-news/understanding-cancer-death-rates.html
+3.https://www.cancer.org/research/cancer-facts-statistics/all-cancer-facts-
+figures/cancer-facts-figures-2020.html
+4.https://www2.census.gov/geo/pdfs/maps-data/maps/reference/us_regdiv.pdf
+5.https://www.data.world/nrippner/ols-regression-challenge
+6.Fox, John. Applied Regression Analysis and Generalized Linear Models. Sage, 2016. 
+7.Gordon, Rachel A. 2015. Regression Analysis for the Social Sciences. 
+New York and London: Routledge.
+8.https://www.nrcs.usda.gov/wps/portal/nrcs/detail/national/home/?cid=nrcs143_013697
 
 \newpage
 
