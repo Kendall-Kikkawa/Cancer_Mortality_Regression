@@ -239,4 +239,3 @@ tbl %>%
   kable_classic_2(full_width = F)
 ```
 The results of our forward selection reveal that adding states does in fact add precision to our model - AIC adds 16 states to our model and BIC adds 7 states to our model. AIC adds significantly more variables than BIC, though that's not surprising considering that BIC penalizes model complexity more heavily. The states chosen by both BIC and AIC tend to be in the Southern and Midwest regions of the United States, perhaps revealing that these regions contain many outlier states. In order to determine which model fits the data better, we again ran k-fold cross validation (with a fold size of 10) on these two models and because the AIC model had a lower MSE, we chose the AIC model as our "final" model for this stage of the model selection process. Our model now has 38 total variables (counting the dummy variables for Division as separate variables) with the addition of the 16 state variables.
-
