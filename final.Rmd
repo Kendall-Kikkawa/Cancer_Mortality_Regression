@@ -17,7 +17,17 @@ library(lattice)
 library(ggplot2)
 library(ggpubr)
 library(car)
+library(usmap)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(reshape2)
+library(corrplot)
+library(car) #VIF
+library(gridExtra)
+library(cowplot)
 library(forecast)
+library(dummies)
 ```
 
 # Introduction
@@ -68,7 +78,7 @@ Our final model ends up regressing on 78 variables. This number includes the var
 
 # Additional Work
 
-## Data Cleaning
+## Data Cleaning and Exploratory Data Analysis
 
 We started the EDA process by checking to see if there are any columns that contained substantial missing values. We removed columns _PctSomeCol18_24_ (2285 N/A), _PctEmployed16_Over_ (152 N/A), _PctPrivateCoverageAlone_ (609 N/A). We then took out binnedInc as once we changed it into a numeric vector and taking means of every row's lower and upper decile, we decided that it would not be appropriate as it categorizes income into 10 splits and provides similar information to medIncome.
 
@@ -76,6 +86,69 @@ Two important issues that we would need to address in order for our model to yie
 
 Since we have multiple variables for regression, we would want to detect multicollinearity within our regressors to avoid. Having multicollinearity affects the variance of our model’s prediction, which reduces the quality of interpreting our independent variables. We tackle this issue through two means: construction of a correlation plot and removing variables that yield a relatively high variance inflation factor (VIF). We used a cutoff VIF of 10$^annotation$to remove 8 features from our dataset: _avgDeathsPerYear_, _popEst2015_, _MedianAgeFemale_, _MedianAgeMale_, _MedianAge_, _PctPrivateCoverage_, _PctPublicCoverage_, and _PctPublicCoverageAlone_. 
 
+```{r, echo=FALSE, results = FALSE}
+cancer <- read.csv("Data/cancer_reg.csv")
+fips_codes <- read.csv("Data/FIPS_codes.csv")
+state_abbr <- read.csv("Data/State_Abbreviation_Mapping.csv") 
+regions <- read.csv("Data/regions.csv")
+
+# Cleaned N/A columns
+cancer <- subset(cancer, select=-c(PctSomeCol18_24, PctEmployed16_Over, 
+                                   PctPrivateCoverageAlone, binnedInc)) 
+
+# Clean coding error, applied log-transformation of PctBachDeg25_Over after plot inspection. 
+
+cancer[cancer$MedianAge > 100,]$MedianAge = 40.8
+cancer[cancer$AvgHouseholdSize < 1,]$AvgHouseholdSize = 1
+
+#Joining Datasets, columns w/ Geographic features. 
+
+County <- sub(",.*$", "", cancer$Geography)
+State <- sub("^.*,\\s*", "", cancer$Geography)
+
+empty_subs = c(" County", " Parish", " City and Borough", 
+               " Municipality", " Borough", " Census Area")
+for (sub_string in empty_subs) {
+  County <- sub(sub_string, "", County) 
+}
+
+County <- sub("city", "City", County) 
+County <- sub("St ", "St. ", County) 
+
+cancer$County<- County
+cancer$State <- State
+cancer <- subset(cancer, select = -c(Geography)) # Redundant
+cancer<- cancer %>% 
+  rename(
+    state = State
+    )
+
+fips_codes$County <- sub("St ", "St. ", fips_codes$County) 
+fips <- merge(fips_codes, state_abbr[, c('State', 'Postal.Abbreviation')], 
+      by.x='State', by.y='Postal.Abbreviation', all.x=TRUE)
+fips <- fips %>% 
+  rename(
+    State.Abbreviation = State,
+    state = State.y
+    )
+cancer <- left_join(cancer, fips, by=c('County', 'state'))
+cancer <- cancer %>% 
+  rename(
+    fips = FIPS
+    )
+
+df <- left_join(cancer, regions, by=c('state'))
+df <- subset(df, select = -c(State.Code, State.Abbreviation) )
+df2 <- df[,c(1:29)]
+
+
+```
+```{r,echo=FALSE, fig.height = 3.5, fig.width = 5, fig.align = "center"}
+p.mat <- cor.mtest(df2)$p
+
+corrplot(cor(df2), type = "upper", order = "hclust", tl.pos = "td", tl.cex = 0.5, method = "color", 
+         p.mat = p.mat, sig.level = 0.1, insig = "blank")
+```
 
 ## Model Selection
 
