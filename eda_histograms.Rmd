@@ -43,8 +43,6 @@ cancer <- subset(cancer, select=-c(PctSomeCol18_24, PctEmployed16_Over,
 
 cancer[cancer$MedianAge > 100,]$MedianAge = 40.8
 cancer[cancer$AvgHouseholdSize < 1,]$AvgHouseholdSize = 1
-cancer[,"PctBachDeg25_Over"] <- cancer[,"PctBachDeg25_Over"]
-
 ```
 
 ```{r}
@@ -154,10 +152,20 @@ remove_features
 
 df <- df[, !names(df) %in% names(remove_features)]
 
+for (i in 3:21){
+  lambda <- BoxCox.lambda(df[,i])
+  df[,i] <- BoxCox(df[,i], lambda)
+}
+
+lambda <- BoxCox.lambda(df[,1])
+df[,1] <- BoxCox(df[,1],lambda)
+
+head(df)
 # One-Hot Encode state names 
 df_state_ohe <- dummy.data.frame(df, names=c("state"), sep="_")
 
 ```
+
 
 
 
