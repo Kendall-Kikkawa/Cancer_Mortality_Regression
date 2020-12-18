@@ -15,7 +15,7 @@ library(DAAG)
 # Setup
 ```{r}
 # Read dataframe
-df <- read.csv('Data/temp3.csv')
+df <- read.csv('Data/vif_removed.csv')
 
 # Drop any row with null values
 df <-na.omit(df)
@@ -68,7 +68,7 @@ best.lasso.coefs
 lasso_model <- lm(lm(TARGET_deathRate ~ ., data=train))
 summary(lasso_model)
 ```
-The LASSO model performs marginally better than the full model if we lookat Adjusted R-squared as a metric.
+The LASSO model is exactly the same as the full model since nothing was zeroed out.
 
 # Running Best Subset Regression
 ```{r}
@@ -175,6 +175,9 @@ The full model doesn't look terrible either in terms of diagnostic plots. In fac
 par(mfrow = c(2,2))
 plot(lasso_model)
 ```
+```{r}
+df[which(df$TARGET_deathRate == max(df$TARGET_deathRate)), ]
+```
 
 ```{r}
 #Compute Train and test MSE
@@ -187,5 +190,8 @@ mean((test$TARGET_deathRate - predict(lasso_model, test))^2)
 
 The LASSO model also looks good in terms of diagnostic plots and performs the same as the full model in terms of MSE. If we look at adjusted R^2 values for these 3 models, it goes lasso_model > cp_model > full_model.
 
+```{r}
+sort(df$TARGET_deathRate, decreasing=TRUE)
+```
 
 
