@@ -27,7 +27,7 @@ Through building a regression model and analyzing the predictions of our model, 
 - Other datasets: intermediate datasets produced during cleaning and preprocessing (can ignore if looking at only Final Report)
 
 ### Archive
-Contains intermediate files used to create the Final Report
+Contains intermediate files that represent different components of the final report
 
 ---
 
