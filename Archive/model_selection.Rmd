@@ -1,0 +1,197 @@
+---
+title: "model_selection"
+author: "Jonathan Luo"
+date: "12/10/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(leaps)
+library(glmnet)
+library(DAAG)
+```
+
+# Setup
+```{r}
+# Read dataframe
+df <- read.csv('Data/vif_removed.csv')
+
+# Drop any row with null values
+df <-na.omit(df)
+df
+```
+
+```{r}
+# Train-test split
+set.seed(12345)
+smp_size <- floor(0.8 * nrow(df))
+train_ind <- sample(seq_len(nrow(df)), size = smp_size)
+
+train <- df[train_ind, ]
+test <- df[-train_ind, ]
+```
+
+# Our initial full model
+```{r}
+full_model <- lm(TARGET_deathRate ~ ., data=train)
+summary(full_model)
+```
+
+# Run LASSO as a screener
+```{r}
+# glmnet uses matrix-vector syntax, not formula syntax
+# Create model matrix (variables automatically standardized by glmnet; intercept automatically included)
+X <- model.matrix(TARGET_deathRate ~ ., train)[, -1]
+y <- train$TARGET_deathRate
+
+# Fit lasso path over lambda.grid
+lasso.mod <- glmnet(x = X, y = y, alpha = 1)
+#cross validated lasso 
+cv.lasso.mod <- cv.glmnet(x = X, y = y, alpha = 1, nfolds = 10)
+plot(cv.lasso.mod)
+
+best.lasso.lam <- cv.lasso.mod$lambda.min
+
+# Plot the lasso path on the lambda scale and add a line for the values at the best lambda
+plot(lasso.mod, xvar = "lambda")
+lines(c(log(best.lasso.lam), log(best.lasso.lam)), 
+      c(-1000, 1000), lty = "dashed", lwd = 3)
+```
+```{r}
+# LASSO results
+best.lasso.coefs <- predict(lasso.mod, type = 'coefficients', s = best.lasso.lam)
+best.lasso.coefs
+```
+```{r}
+# Model selected by LASSO
+lasso_model <- lm(lm(TARGET_deathRate ~ ., data=train))
+summary(lasso_model)
+```
+The LASSO model is exactly the same as the full model since nothing was zeroed out.
+
+# Running Best Subset Regression
+```{r}
+regfit.full = regsubsets(TARGET_deathRate ~ ., method = "exhaustive", data = train, nvmax = 30)
+satreg.summary = summary(regfit.full)
+
+# Dataframe with best number of coefficients for each model
+data.frame(
+  Adj.R2 = which.max(satreg.summary$adjr2),
+  CP = which.min(satreg.summary$cp),
+  BIC = which.min(satreg.summary$bic)
+)
+```
+```{r}
+# Adjusted R^2
+satreg.summary$which[23,]
+adjusted_r2_model <- lm(TARGET_deathRate ~ ., data=train)
+
+# Mallow's Cp
+satreg.summary$which[23,]
+cp_model <- lm(TARGET_deathRate ~ ., data=train)
+# BIC
+satreg.summary$which[22,]
+bic_model <- lm(TARGET_deathRate ~ . - BirthRate, data=train)
+```
+# Cross Validation between models
+```{r, fig.show='hide', results=FALSE}
+# Calculating MSEs for each model
+full.cv <- cv.lm(data=train, full_model, m=10)
+full.mse <- attr(full.cv, "ms")
+
+lasso.cv <- cv.lm(data=train, lasso_model, m=10)
+lasso.mse <- attr(lasso.cv, "ms")
+
+adjr2.cv <- cv.lm(data=train, adjusted_r2_model, m=10)
+adjr2.mse <- attr(adjr2.cv, "ms")
+
+cp.cv <- cv.lm(data=train, cp_model, m=10)
+cp.mse <- attr(cp.cv, "ms")
+
+bic.cv <- cv.lm(data=train, bic_model, m=10)
+bic.mse <- attr(bic.cv, "ms")
+```
+```{r}
+# MSE of full model
+full.mse
+
+# MSE of LASSO model
+lasso.mse
+
+# MSE of model chosen by Adjusted R^2
+adjr2.mse
+
+# MSE of model chosen by Mallow's Cp
+cp.mse
+
+# MSE of model chosen by BIC
+bic.mse
+```
+It appears that BIC has chosen the best model
+
+# Model Diagnostics
+```{r}
+summary(bic_model)
+```
+
+```{r}
+# Diagnostic Plots
+par(mfrow = c(2,2))
+plot(cp_model)
+```
+Residuals are are scattered pretty randomly so no obvious signs of heteroscedasticity. There's an outlier with high leverage, but low influence.
+
+```{r}
+#Compute Train and test MSE
+# Train MSE
+mean(cp_model$residuals^2)
+
+# Test MSE
+mean((test$TARGET_deathRate - predict(cp_model, test))^2)
+```
+Suprisingly, the test MSE is lower than the train MSE
+
+# Looking at some of our other models
+
+```{r}
+# Diagnostic Plots
+par(mfrow = c(2,2))
+plot(full_model)
+```
+
+```{r}
+#Compute Train and test MSE
+# Train MSE
+mean(full_model$residuals^2)
+
+# Test MSE
+mean((test$TARGET_deathRate - predict(full_model, test))^2)
+```
+The full model doesn't look terrible either in terms of diagnostic plots. In fact, it looks very similar to the Cp model, and the training MSE is even lower than the Cp model and the test MSE is exactly the same.
+
+```{r}
+# Diagnostic Plots
+par(mfrow = c(2,2))
+plot(lasso_model)
+```
+```{r}
+df[which(df$TARGET_deathRate == max(df$TARGET_deathRate)), ]
+```
+
+```{r}
+#Compute Train and test MSE
+# Train MSE
+mean(lasso_model$residuals^2)
+
+# Test MSE
+mean((test$TARGET_deathRate - predict(lasso_model, test))^2)
+```
+
+The LASSO model also looks good in terms of diagnostic plots and performs the same as the full model in terms of MSE. If we look at adjusted R^2 values for these 3 models, it goes lasso_model > cp_model > full_model.
+
+```{r}
+sort(df$TARGET_deathRate, decreasing=TRUE)
+```
+
+

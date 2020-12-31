@@ -1,0 +1,243 @@
+---
+title: "Interaction_Visualizations"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(usmap)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(usmap)
+library(stringr)
+library(reshape2)
+library(corrplot)
+library(gridExtra)
+```
+
+# EDA - Interaction terms
+
+```{r}
+cancer <- read.csv("Data/cancer_reg.csv")
+# Regional data obtained from census.gov
+## https://www2.census.gov/geo/pdfs/maps-data/maps/reference/us_regdiv.pdf
+regions <- read.csv("Data/regions.csv")
+
+# Join Region and Division Info, drop unecessary columns
+# df <- left_join(cancer, regions, by=c('State'))
+# df <- subset(df, select = -c(State.Abbreviation, State.Code) )
+
+# U.S. Department of Agriculture
+## https://www.nrcs.usda.gov/wps/portal/nrcs/detail/national/home/?cid=nrcs143_013697
+fips_codes <- read.csv("Data/FIPS_codes.csv")
+state_abbr <- read.csv("Data/State_Abbreviation_Mapping.csv") 
+```
+
+
+```{r}
+# remove columns with null values
+cancer_cleaned <- subset(cancer, select=-c(PctSomeCol18_24, PctEmployed16_Over, 
+                                   PctPrivateCoverageAlone)) 
+# PctSomeCol18_24 had 2285 missing values
+# PctEmployed16_Over had 152 missing values
+# PctPrivateCoverageAlone had 609 missing values
+
+names(cancer_cleaned) # Feature names
+dim(cancer_cleaned) # Matrix dimensions
+head(cancer_cleaned)
+```
+
+
+```{r}
+# Map Geopgrahy to County Name and State Columns, fix formatting for future join
+County <- sub(",.*$", "", cancer_cleaned$Geography)
+State <- sub("^.*,\\s*", "", cancer_cleaned$Geography)
+
+# Clean County for join with FIPS
+empty_subs = c(" County", " Parish", " City and Borough", 
+               " Municipality", " Borough", " Census Area")
+for (sub_string in empty_subs) {
+  County <- sub(sub_string, "", County) 
+}
+County <- sub("city", "City", County) 
+County <- sub("St ", "St. ", County) 
+
+# Create New columns
+cancer_cleaned$County<- County
+cancer_cleaned$State <- State
+cancer_cleaned <- subset(cancer_cleaned, select = -c(Geography)) # Redundant
+
+# Map State Abbreviation to Full Name
+fips_codes$County <- sub("St ", "St. ", fips_codes$County) 
+fips <- merge(fips_codes, state_abbr[, c('State', 'Postal.Abbreviation')], 
+      by.x='State', by.y='Postal.Abbreviation', all.x=TRUE)
+fips <- fips %>% 
+  rename(
+    State.Abbreviation = State,
+    State = State.y
+    )
+
+# Join FIPS Info
+mydata <- left_join(cancer_cleaned, fips, by=c('County', 'State'))
+mydata <- mydata %>% 
+  rename(
+    fips = FIPS,
+    )
+
+# Join Region and Division Info, drop unecessary columns
+df <- left_join(mydata, regions, by=c('State'))
+df <- subset(df, select = -c(State.Abbreviation, State.Code) )
+head(df)
+```
+
+```{r}
+#geography = subset(df, select = c("County","state", "State.Abbreviation","fips"))
+
+#df <- df[,c(1:30)]
+str(df)
+
+#Goal: take each row of binned income, and find mean between its lower and upper decile. 
+
+head(df$binnedInc)
+
+#From stringr package:
+
+df$binnedInc <- str_replace(df$binnedInc, "[(]", "")
+df$binnedInc <- str_replace_all(df$binnedInc, "[)]", "")
+df$binnedInc <- gsub("\\[|\\]", "", df$binnedInc)
+#df$binnedInc <- strsplit(df$binnedInc, ',')
+df$binnedInc <- sapply(strsplit(df$binnedInc, ','), function(x) mean(as.numeric(x)))
+df$binnedInc
+head(df)
+```
+
+
+With 23 features to explore, we found it computationally infeasible to test $2^23$ possible interactions, in addition to a search over the $2^23$ possible models (assuming no interactions).
+
+To assess interactions, we opted for a "manual grid search". We hypothesize that the most informative, and likely most interpretable, interactions occur beetween a continuous value and a certain division of the U.S. Divisions are a finer categorization of region, broken down in this table:
+
+| Division | Region| Number of States |
+|:---:|:---:|:---:|
+| New England | Northeast | 6 |
+| Middle Atlantic | Northeast | 3 |
+| East North Central | Midwest | 5 |
+| West North Central | Midwest | 7 |
+| South Atlantic | South | 9 |
+| East South Central | South | 4 |
+| West South Central | South | 4 |
+| Mountain | West | 8 |
+| Pacific | West | 5 |
+
+Excluding `TARGET_deathRate`, we grouped the rest of the features into five main demographic categories:
+
+1. Cancer-related Demographics
+2. General Demographics
+3. Racial Demographics
+4. Education and Employment Demographics
+5. Insurance Coverage Demographics
+6. Income and Household Demographics
+
+Because the target is mean _per capita_ canter mortalities, we investigated all cancer-related demographics for interactions with division  Within each of groups 2-6, we identifed a top feature that we hypothesized would present the highest likelihood of interaction with division. We then assessed (visually) the validity of a potential interaction. If the signal for interaction was weak, then discontinue searching any variables in that category. If there was interaction, then we inspected possible interactions between division and all other features in that category.
+
+### Decided to plot all just so that we can investigate them individually
+
+# Cancer-Related Demographics
+
+The features in this category include the following: `avgAnnCount`, `avgDeathsPerYear`, `incidenceRate`, `studyPerCap`
+- maybe don't consider `avgAnnCount` and `avgDeathsPerYear` because they are not scaled?
+
+```{r}
+plot_interactions <- function(features, df) {
+  # Function plots all features from given dataframe and 
+  # given category to test for interactions
+  plot_list <- list()
+  for (i in 1:length(features)) {
+    sub_df <- df %>%
+      dplyr::select(features[[i]], "TARGET_deathRate", "Division")
+    title <- paste("Interaction between Division and", colnames(sub_df)[1])
+    p <- ggplot(sub_df, aes_string(x=colnames(sub_df)[1], y = "TARGET_deathRate", 
+                                   colour="Division")) + 
+                    geom_point(size = 0.7) + 
+                    geom_smooth(method='lm', formula= y~x, se=FALSE) +
+                    ggtitle(title)
+    plot_list[[i]] <- p
+  }
+  num_rows = ceiling (length(plot_list) / 2)
+  return(grid.arrange(grobs=plot_list, nrow=num_rows))
+}
+```
+
+```{r, fig.width=7, fig.height=3}
+features <- list('incidenceRate', 'studyPerCap')
+plot_interactions(features, df)
+```
+
+In the plots above, we see evidence for interaction between `Division` and `incidenceRate`, but not wtih `studyPerCap`.
+
+# General Demographics
+
+The features in this category include the following: `popEst2015`, `MedianAge`, `MedianAgeFemale`, `BirthRate`
+The proposed candidate feature is `MedianAge`.
+
+```{r, fig.width=7, fig.height=5}
+features <- list('MedianAge', 'popEst2015', 'MedianAgeFemale', 'BirthRate')
+plot_interactions(features, df)
+```
+
+Based on the plots, we conclude that we should investigate the following interactions:
+- Division:MedianAge
+- Division: popEst2015
+- Division: MedianAgeFemale
+- Division: BirthRate
+
+# Racial Demographics
+
+The features in this category include the following: `PctWhite`, `PctBlack`, `PctOtherRace`, 
+The proposed candidate feature is `PctWhite`
+
+```{r, fig.width=7, fig.height=5}
+features <- list('PctWhite', 'PctBlack', 'PctOtherRace')
+plot_interactions(features, df)
+```
+
+We don't see much of a varying relationship for any racial demographics.
+
+# Education and Employment Demographics
+
+The features in this category include the following: `PctBachDeg18_24`, `PctHS25_Over`, `PctBachDeg25_Over`, `PctUnemployed16_Over`
+The proposed candidate feature is `PctUnemployed16_Over`
+
+```{r, fig.width=7, fig.height=5}
+features <- list('PctBachDeg18_24', 'PctHS25_Over', 
+                 'PctBachDeg25_Over', 'PctUnemployed16_Over')
+plot_interactions(features, df)
+```
+
+A little bit of interaction??
+
+# Insurance Coverage Demographics
+
+The features in this category include the following: `PctPrivateCoverage`, `PctEmpPrivCoverage`
+This category only contains two variables, so we will investigate both.
+
+
+```{r, fig.width=7, fig.height=3}
+features <- list('PctPrivateCoverage', 'PctEmpPrivCoverage')
+plot_interactions(features, df)
+```
+
+Slopes appear to be farily consistent across divisions, so we will disregard interactions in regards to insurance coverage.
+
+# Income and Household Demographics
+
+The features in this category include the following: `medIncome`, `binnedInc`, `povertyPercent`, `AvgHouseholdSize`, `PercentMarried`, `PctMarriedHouseholds`
+The proposed candidate feature is `medianIncome`
+(Plot all below though)
+
+```{r, fig.width=7, fig.height=8}
+features <- list('medIncome', 'binnedInc', 'povertyPercent',
+                 'AvgHouseholdSize', 'PercentMarried', 'PctMarriedHouseholds')
+plot_interactions(features, df)
+```
+
