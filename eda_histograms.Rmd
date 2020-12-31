@@ -1,6 +1,6 @@
 ---
 title: "Stat 151A Final Project EDA"
-author: "Andre Sha"
+author: "Kendall Kikkawa, Jonathan Luo, Andre Sha"
 date: "12/9/2020"
 output: pdf_document
 ---
