@@ -1,0 +1,287 @@
+---
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+suppressWarnings(suppressMessages(library(glmnet)))
+suppressWarnings(suppressMessages(library(leaps)))
+suppressWarnings(suppressMessages(library(DAAG)))
+library(knitr)
+library(kableExtra)
+library(gpairs)
+library(grid)
+library(lattice)
+library(ggplot2)
+library(usmap)
+library(ggpubr)
+library(car)
+library(forecast)
+library(gridExtra)
+library(stringr)
+library(dotwhisker)
+library(broom)
+library(dplyr)
+library(lm.beta)
+library(jtools)
+library(maps)
+library(mapdata)
+library(sjPlot)
+library(sjlabelled)
+library(sjmisc)
+```
+
+```{r}
+states_df <- read.csv('Data/geography_cleaned.csv')
+```
+
+# Exploring Interactions
+
+Because our model selection process yielded a design matrix with 38 features, we found it computationally infeasible to assess the presence of $2^38$ possible interactions. We hypothesize that the most informative, and likely most interpretable, interactions occur between a continuous value and a certain division of the U.S. Divisions are a finer categorization of region, broken down in this table:
+
+| Division | Region| Number of States |
+|:---:|:---:|:---:|
+| New England | Northeast | 6 |
+| Middle Atlantic | Northeast | 3 |
+| East North Central | Midwest | 5 |
+| West North Central | Midwest | 7 |
+| South Atlantic | South | 9 |
+| East South Central | South | 4 |
+| West South Central | South | 4 |
+| Mountain | West | 8 |
+| Pacific | West | 5 |
+
+We acknowledge that there may be some state-level interactions as well, but again we decided it was infeasible to test all of these interactions. However, the forward selection above should identify "outlier" states, so the combination of division-level interactions and state-specific coefficients should capture state-level characteristics in our model.
+
+```{r}
+plot_interactions <- function(features, df) {
+  # Function plots all features from given data frame and 
+  # given category to test for interactions
+  plot_list <- list()
+  for (i in 1:length(features)) {
+    sub_df <- df %>%
+      dplyr::select(features[[i]], "TARGET_deathRate", "Division")
+    title <- paste("Interaction between Division and", colnames(sub_df)[1])
+    p <- ggplot(sub_df, aes_string(x=colnames(sub_df)[1], y = "TARGET_deathRate", 
+                                   colour="Division")) + 
+                    geom_point(size = 0.7) + 
+                    geom_smooth(method='lm', formula= y~x, se=FALSE) +
+                    ggtitle(title)
+    plot_list[[i]] <- p
+  }
+  num_rows = ceiling (length(plot_list) / 2)
+  return(grid.arrange(grobs=plot_list, nrow=num_rows))
+}
+```
+
+```{r, fig.width=10, fig.height=30}
+# Plot interactions
+features <- c('incidenceRate', 'povertyPercent', 'PercentMarried',
+              'PctHS18_24', 'PctBachDeg18_24', 'PctHS25_Over',
+              'PctBachDeg25_Over', 'PctUnemployed16_Over',
+              'PctEmpPrivCoverage', 'PctWhite','PctBlack',
+              'PctOtherRace', 'PctMarriedHouseholds', 'BirthRate')
+plot_interactions(features, states_df)
+```
+
+In the plots above, we determine that there is evidence of the following interactions:
+1. Division:incidenceRate
+2. Division:povertyPercent
+3. Division:PercentMarried
+4. Division:PctBachDeg18_24
+5. Division:PctBachDeg25_Over
+6. Division:PctUnemployed16_Over
+7. Division:PctEmpPrivCoverage
+8. Division:PctWhite
+9. Division:PctOtherRace
+10. Division:PctMarriedHouseholds
+11. Division:BirthRate
+
+To ultimately decide whether or not these division-level interactions improved our model performance, we used F-tests comparing the full model with all interactions to the model with each interaction removed. Because we are conducting 14 tests, we will use the Benjamini-Hochberg/Bonferroni correction factor to control the FWER.
+
+```{r}
+full_formula <- 'TARGET_deathRate ~ incidenceRate + povertyPercent + 
+    PercentMarried + PctHS18_24 + PctBachDeg18_24 + PctHS25_Over + 
+    PctBachDeg25_Over + PctUnemployed16_Over + PctEmpPrivCoverage + 
+    PctWhite + PctBlack + PctOtherRace + PctMarriedHouseholds + 
+    BirthRate + Division + state_Missouri + state_Virginia + 
+    state_Alaska + state_Arkansas + state_Oklahoma + state_Indiana + 
+    state_Alabama + state_Georgia + state_North.Carolina + state_Wyoming + 
+    state_Ohio + state_Hawaii + state_Kansas + state_Nevada + 
+    state_Connecticut + state_Kentucky +
+    Division:incidenceRate +
+    Division:povertyPercent +
+    Division:PercentMarried +
+    Division:PctBachDeg18_24 +
+    Division:PctBachDeg25_Over +
+    Division:PctUnemployed16_Over +
+    Division:PctEmpPrivCoverage +
+    Division:PctWhite +
+    Division:PctOtherRace +
+    Division:PctMarriedHouseholds +
+    Division:BirthRate'
+full_formula <- str_replace_all(full_formula, "[\r\n]", "")
+full_model <- eval(bquote(lm(.(as.formula(full_formula)), data = states_df)))
+```
+
+```{r}
+interactions <- c('Division:incidenceRate', 'Division:povertyPercent',
+                  'Division:PercentMarried', 'Division:PctBachDeg18_24',
+                  'Division:PctBachDeg25_Over', 'Division:PctUnemployed16_Over',
+                  'Division:PctEmpPrivCoverage', 'Division:PctWhite',
+                  'Division:PctOtherRace', 'Division:PctMarriedHouseholds',
+                  'Division:BirthRate')
+```
+
+
+```{r}
+# Run F-test comparing full model to model without one interaction
+# Store p-values in a list
+p_vals <- list()
+for (i in 1:length(interactions)) {
+  sub_pattern <- paste("[+]\\s+", interactions[[i]])
+  sub_formula <- sub(sub_pattern, "", full_formula)
+  reduced_model <- eval(bquote(lm(.(as.formula(sub_formula)), data = states_df)))
+  p_val <- anova(full_model, reduced_model)$"Pr(>F)"[2]
+  print(interactions[[i]])
+  print(p_val)
+  print("")
+  p_vals[[i]] <- p_val
+}
+
+print('BH Interactions')
+print(interactions[p.adjust(p_vals, method="BH", n=length(p_vals)) < 0.05])
+print('Bonferroni Interactions')
+print(interactions[p.adjust(p_vals, method="bonferroni", n=length(p_vals)) < 0.05])
+```
+
+# Cross-Validation with Interaction Terms
+
+```{r}
+# BH formula
+bh_formula <- 'TARGET_deathRate ~ incidenceRate + povertyPercent + 
+    PercentMarried + PctHS18_24 + PctBachDeg18_24 + PctHS25_Over + 
+    PctBachDeg25_Over + PctUnemployed16_Over + PctEmpPrivCoverage + 
+    PctWhite + PctBlack + PctOtherRace + PctMarriedHouseholds + 
+    BirthRate + Division + state_Missouri + state_Virginia + 
+    state_Alaska + state_Arkansas + state_Oklahoma + state_Indiana + 
+    state_Alabama + state_Georgia + state_North.Carolina + state_Wyoming + 
+    state_Ohio + state_Hawaii + state_Kansas + state_Nevada + 
+    state_Connecticut + state_Kentucky +
+    Division:incidenceRate +
+    Division:povertyPercent +
+    Division:PctUnemployed16_Over +
+    Division:PctEmpPrivCoverage +
+    Division:PctWhite'
+bh_formula <- str_replace_all(bh_formula, "[\r\n]", "")
+bh_model <- eval(bquote(lm(.(as.formula(bh_formula)), data = states_df)))
+# Calculating MSE BH model
+bh_model.cv <- cv.lm(data=states_df, bh_model, m=10)
+bh_model.mse <- attr(bh_model.cv, "ms")
+```
+
+```{r}
+# Bonf formula
+bonf_formula <- 'TARGET_deathRate ~ incidenceRate + povertyPercent + 
+    PercentMarried + PctHS18_24 + PctBachDeg18_24 + PctHS25_Over + 
+    PctBachDeg25_Over + PctUnemployed16_Over + PctEmpPrivCoverage + 
+    PctWhite + PctBlack + PctOtherRace + PctMarriedHouseholds + 
+    BirthRate + Division + state_Missouri + state_Virginia + 
+    state_Alaska + state_Arkansas + state_Oklahoma + state_Indiana + 
+    state_Alabama + state_Georgia + state_North.Carolina + state_Wyoming + 
+    state_Ohio + state_Hawaii + state_Kansas + state_Nevada + 
+    state_Connecticut + state_Kentucky +
+    Division:PctUnemployed16_Over +
+    Division:PctWhite'
+bonf_formula <- str_replace_all(bonf_formula, "[\r\n]", "")
+bonf_model <- eval(bquote(lm(.(as.formula(bonf_formula)), data = states_df)))
+# Calculating MSE for Bonf model
+bonf_model.cv <- cv.lm(data=states_df, bonf_model, m=10)
+bonf_model.mse <- attr(bonf_model.cv, "ms")
+```
+
+```{r}
+print(bh_model.mse)
+print(bonf_model.mse)
+```
+
+```{r, fig.width=10, fig.height=6}
+### Coefficient Plots
+
+#dwplot(bh_model)
+#plot_coefs(bh_model, rescale.distributions = TRUE)
+```
+
+```{r, fig.width=7, fig.height=7}
+plot_model(bh_model, sort.est = TRUE, type="std")
+```
+
+
+
+```{r}
+plot_usmap(
+    data = states_df, values = "TARGET_deathRate", include = .south_region, color = "red"
+  ) + 
+  scale_fill_continuous(
+    low = "white", high = "red", name = "TARGET_deathRate", label = scales::comma
+  ) + 
+  labs(title = "Southern Region", subtitle = "High coefficient") +
+  theme(legend.position = "right")
+```
+
+## Predictions with Final Model
+
+```{r}
+# Load Lat/Lon data
+usa <- map_data("usa")
+states <- map_data("state")
+AllCounty <- map_data("county")
+```
+
+```{r}
+# Make Predictions for each county
+states_df$predictedRates <- c(predict(bh_model, states_df))
+```
+
+```{r}
+plot_top_counties <- function(n) {
+  # Plot predicted vs actual
+  # n: top counties we want to visualize (int)
+  county_df <- AllCounty
+  plot_list <- list()
+  columns <- c("TARGET_deathRate", "predictedRates")
+  
+  for (i in 1:2) {
+    column <- columns[i]
+    topN <- states_df[order(-states_df[column]),][1:n, ]
+    
+    topactual_counties <- tolower(topN$County)
+    topactual_states <- tolower(topN$State)
+    
+    county_df$DeathRate <- ifelse((county_df$subregion %in% topactual_counties) & 
+                            (county_df$region %in% topactual_states) , 'High', 'Low')
+    
+    sub <- paste0("Top ", n, " Counties with highest rates")
+    if (column == "TARGET_deathRate") {
+      title <- "Actual Death Rates"
+    } else {
+      title <- "Predicted Death Rates"
+    }
+    
+    p <- ggplot() + geom_polygon(data=states, aes(x=long, y=lat, group=group),
+                  color="black", size = 0.5) +
+            geom_polygon(data=county_df, aes(x=long, y=lat, 
+                  group=group, fill=DeathRate),
+                  color="black",  size = 0.3) +
+          scale_fill_brewer(palette="Set1") +
+          ggtitle(title, subtitle=sub) +
+          theme(legend.position = "none")
+    plot_list[[i]] <- p
+  }
+  return(grid.arrange(grobs=plot_list, nrow=1))
+}
+```
+
+```{r, fig.width=10, fig.height=3}
+plot_top_counties(300)
+```
