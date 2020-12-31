@@ -35,7 +35,6 @@ library(sjmisc)
 states_df <- read.csv('Data/geography_cleaned.csv')
 ```
 
-
 # Exploring Interactions
 
 Because our model selection process yielded a design matrix with 38 features, we found it computationally infeasible to assess the presence of $2^38$ possible interactions. We hypothesize that the most informative, and likely most interpretable, interactions occur between a continuous value and a certain division of the U.S. Divisions are a finer categorization of region, broken down in this table:
@@ -229,6 +228,8 @@ plot_usmap(
   labs(title = "Southern Region", subtitle = "High coefficient") +
   theme(legend.position = "right")
 ```
+
+## Predictions with Final Model
 
 ```{r}
 # Load Lat/Lon data
